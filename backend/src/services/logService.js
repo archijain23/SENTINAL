@@ -4,17 +4,10 @@ const attackService      = require('./attackService');
 const logger             = require('../utils/logger');
 
 const ATTACK_TYPE_MAP = {
-  'SQL Injection':            'sqli',
-  'XSS':                      'xss',
-  'Path Traversal':           'traversal',
-  'Command Injection':        'command_injection',
-  'SSRF':                     'ssrf',
-  'LFI/RFI':                  'lfi_rfi',
-  'Brute Force':              'brute_force',
-  'HTTP Parameter Pollution': 'hpp',
-  'XXE':                      'xxe',
-  'Webshell':                 'webshell',
-  'Typosquatting':            'unknown',
+  'SQL Injection': 'sqli', 'XSS': 'xss', 'Path Traversal': 'traversal',
+  'Command Injection': 'command_injection', 'SSRF': 'ssrf', 'LFI/RFI': 'lfi_rfi',
+  'Brute Force': 'brute_force', 'HTTP Parameter Pollution': 'hpp',
+  'XXE': 'xxe', 'Webshell': 'webshell', 'Typosquatting': 'unknown',
 };
 
 const mapDetectedBy = (scoredBy) => {
@@ -37,42 +30,30 @@ const extractMitigation = (exp) => {
 
 const ingestLog = async (data) => {
   const log = await SystemLog.create({
-    projectId:        data.projectId,
-    method:           data.method,
-    url:              data.url,
-    ip:               data.ip,
-    queryParams:      data.queryParams      || {},
-    body:             data.body             || {},
-    headers:          data.headers          || {},
-    responseCode:     data.responseCode     || null,
-    processingTimeMs: data.processingTimeMs || 0,
+    projectId: data.projectId, method: data.method, url: data.url, ip: data.ip,
+    queryParams: data.queryParams || {}, body: data.body || {}, headers: data.headers || {},
+    responseCode: data.responseCode || null, processingTimeMs: data.processingTimeMs || 0,
   });
-
   if (process.env.NODE_ENV === 'test') return log;
-
   setImmediate(async () => {
     try {
       const detection = await detectionConnector.analyze(log);
       if (detection && detection.threat_detected) {
         await attackService.reportAttack({
-          requestId:            log._id,
-          ip:                   log.ip,
-          attackType:           ATTACK_TYPE_MAP[detection.threat_type] || 'unknown',
-          severity:             detection.severity             || 'low',
-          status:               'attempt',
-          detectedBy:           mapDetectedBy(detection.scored_by),
-          confidence:           detection.confidence           || 1.0,
-          payload:              log.url                        || '',
-          explanation:          serializeExplanation(detection.explanation),
+          requestId: log._id, ip: log.ip,
+          attackType: ATTACK_TYPE_MAP[detection.threat_type] || 'unknown',
+          severity: detection.severity || 'low', status: 'attempt',
+          detectedBy: mapDetectedBy(detection.scored_by),
+          confidence: detection.confidence || 1.0, payload: log.url || '',
+          explanation: serializeExplanation(detection.explanation),
           mitigationSuggestion: extractMitigation(detection.explanation),
-          responseCode:         log.responseCode,
+          responseCode: log.responseCode,
         });
       }
     } catch (err) {
       logger.error(`[LOG_SERVICE] Post-ingest detection error: ${err.message}`);
     }
   });
-
   return log;
 };
 
