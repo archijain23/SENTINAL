@@ -5,11 +5,7 @@ const ingestLimiter = rateLimit({
   max: 100,
   standardHeaders: true,
   legacyHeaders: false,
-  message: {
-    success: false,
-    message: 'Too many requests — slow down',
-    code: 'RATE_LIMIT_EXCEEDED'
-  }
+  message: { success: false, message: 'Too many requests — slow down', code: 'RATE_LIMIT_EXCEEDED' }
 });
 
 const globalLimiter = rateLimit({
@@ -17,11 +13,7 @@ const globalLimiter = rateLimit({
   max: 300,
   standardHeaders: true,
   legacyHeaders: false,
-  message: {
-    success: false,
-    message: 'Too many requests',
-    code: 'RATE_LIMIT_EXCEEDED'
-  }
+  message: { success: false, message: 'Too many requests', code: 'RATE_LIMIT_EXCEEDED' }
 });
 
 module.exports = { ingestLimiter, globalLimiter };

@@ -23,17 +23,10 @@ const logger = createLogger({
 });
 
 if (process.env.NODE_ENV !== 'test') {
-  logger.add(new transports.File({
-    filename: path.join(__dirname, '../../../logs/error.log'),
-    level: 'error'
-  }));
-  logger.add(new transports.File({
-    filename: path.join(__dirname, '../../../logs/combined.log')
-  }));
+  logger.add(new transports.File({ filename: path.join(__dirname, '../../../logs/error.log'), level: 'error' }));
+  logger.add(new transports.File({ filename: path.join(__dirname, '../../../logs/combined.log') }));
 }
 
-logger.stream = {
-  write: (message) => logger.http(message.trim())
-};
+logger.stream = { write: (message) => logger.http(message.trim()) };
 
 module.exports = logger;
