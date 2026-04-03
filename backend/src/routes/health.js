@@ -1,9 +1,7 @@
 const express = require('express');
-const router  = express.Router();
+const router = express.Router();
+const { getHealth } = require('../controllers/healthController');
 
-// GET /api/health
-router.get('/', (req, res) => {
-  res.json({ status: 'ok', service: 'sentinal-gateway', timestamp: new Date().toISOString() });
-});
+router.get('/', getHealth);
 
 module.exports = router;

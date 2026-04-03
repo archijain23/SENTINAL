@@ -1,19 +1,16 @@
-const express    = require('express');
-const router     = express.Router();
-const SystemLog  = require('../models/SystemLog');
-const logger     = require('../utils/logger');
+const express = require('express');
+const router = express.Router();
+const { ingest, getLogs } = require('../controllers/logController');
+const { ingestLimiter } = require('../middleware/rateLimiter');
+const validate = require('../middleware/validate');
+const { ingestSchema } = require('../validators/logValidator');
 
-// GET /api/logs
-router.get('/', async (req, res) => {
-  try {
-    const { projectId, limit = 50 } = req.query;
-    const filter = projectId ? { projectId } : {};
-    const logs = await SystemLog.find(filter).sort({ timestamp: -1 }).limit(parseInt(limit)).lean();
-    res.json({ success: true, count: logs.length, data: logs });
-  } catch (err) {
-    logger.error('[LOGS] list failed:', err.message);
-    res.status(500).json({ success: false, message: 'Server error' });
-  }
-});
+router.get('/recent', getLogs);
+
+router.post('/ingest',
+  ingestLimiter,
+  validate(ingestSchema),
+  ingest
+);
 
 module.exports = router;

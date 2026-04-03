@@ -1,17 +1,7 @@
-const express       = require('express');
-const router        = express.Router();
-const ServiceStatus = require('../models/ServiceStatus');
-const logger        = require('../utils/logger');
+const express = require('express');
+const router = express.Router();
+const { getServiceStatus } = require('../controllers/serviceStatusController');
 
-// GET /api/services
-router.get('/', async (req, res) => {
-  try {
-    const statuses = await ServiceStatus.find().lean();
-    res.json({ success: true, data: statuses });
-  } catch (err) {
-    logger.error('[SERVICE-STATUS] list failed:', err.message);
-    res.status(500).json({ success: false, message: 'Server error' });
-  }
-});
+router.get('/', getServiceStatus);
 
 module.exports = router;
