@@ -1,22 +1,35 @@
-const attackService = require('../services/attackService');
+const logger = require('../utils/logger');
 
-const report = async (req, res, next) => {
+/**
+ * Attack Controller
+ * Stage 1 — Skeleton
+ * Returns empty attack events list as baseline.
+ */
+
+const getAttacks = async (req, res) => {
   try {
-    const attack = await attackService.reportAttack(req.body);
-    res.status(201).json({ success: true, message: 'Attack reported successfully', data: { id: attack._id } });
+    return res.status(200).json({
+      success: true,
+      data: [],
+      total: 0,
+    });
   } catch (err) {
-    next(err);
+    logger.error('[attackController] getAttacks error:', err.message);
+    return res.status(500).json({ success: false, message: 'Failed to fetch attacks' });
   }
 };
 
-const getRecent = async (req, res, next) => {
+const getAttackById = async (req, res) => {
   try {
-    const limit = parseInt(req.query.limit) || 20;
-    const attacks = await attackService.getRecentAttacks(limit);
-    res.status(200).json({ success: true, message: 'Recent attacks retrieved', data: attacks });
+    const { id } = req.params;
+    if (!id) {
+      return res.status(400).json({ success: false, message: 'Attack ID is required' });
+    }
+    return res.status(404).json({ success: false, message: 'Attack not found' });
   } catch (err) {
-    next(err);
+    logger.error('[attackController] getAttackById error:', err.message);
+    return res.status(500).json({ success: false, message: 'Failed to fetch attack' });
   }
 };
 
-module.exports = { report, getRecent };
+module.exports = { getAttacks, getAttackById };
