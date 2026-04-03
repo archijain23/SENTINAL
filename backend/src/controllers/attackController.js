@@ -1,35 +1,48 @@
 const logger = require('../utils/logger');
+const AttackEvent = require('../models/AttackEvent');
 
 /**
  * Attack Controller
- * Stage 1 — Skeleton
- * Returns empty attack events list as baseline.
+ * Stage 2 — Basic Functionality
+ * Exports exactly the function names the attacks route expects:
+ *   report, getRecent
  */
 
-const getAttacks = async (req, res) => {
+// POST /api/attacks/report
+const report = async (req, res) => {
   try {
-    return res.status(200).json({
-      success: true,
-      data: [],
-      total: 0,
+    const { attackType, severity, sourceIP, targetIP, payload, port } = req.body;
+    const event = new AttackEvent({
+      attackType,
+      severity,
+      sourceIP,
+      targetIP,
+      payload,
+      port,
+      detectedAt: new Date(),
     });
+    await event.save();
+    logger.info(`[attackController] New attack reported: ${attackType} from ${sourceIP}`);
+    return res.status(201).json({ success: true, data: event });
   } catch (err) {
-    logger.error('[attackController] getAttacks error:', err.message);
-    return res.status(500).json({ success: false, message: 'Failed to fetch attacks' });
+    logger.error('[attackController] report error:', err.message);
+    return res.status(500).json({ success: false, message: 'Failed to report attack' });
   }
 };
 
-const getAttackById = async (req, res) => {
+// GET /api/attacks/recent
+const getRecent = async (req, res) => {
   try {
-    const { id } = req.params;
-    if (!id) {
-      return res.status(400).json({ success: false, message: 'Attack ID is required' });
-    }
-    return res.status(404).json({ success: false, message: 'Attack not found' });
+    const limit = parseInt(req.query.limit) || 20;
+    const attacks = await AttackEvent.find()
+      .sort({ detectedAt: -1 })
+      .limit(limit)
+      .lean();
+    return res.status(200).json({ success: true, count: attacks.length, data: attacks });
   } catch (err) {
-    logger.error('[attackController] getAttackById error:', err.message);
-    return res.status(500).json({ success: false, message: 'Failed to fetch attack' });
+    logger.error('[attackController] getRecent error:', err.message);
+    return res.status(500).json({ success: false, message: 'Failed to fetch recent attacks' });
   }
 };
 
-module.exports = { getAttacks, getAttackById };
+module.exports = { report, getRecent };
