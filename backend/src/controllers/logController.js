@@ -1,22 +1,22 @@
-const logService = require('../services/logService');
+const logger = require('../utils/logger');
 
-const ingest = async (req, res, next) => {
+/**
+ * Log Controller
+ * Stage 1 — Skeleton
+ * Returns empty logs array as baseline.
+ */
+
+const getLogs = async (req, res) => {
   try {
-    const log = await logService.ingestLog(req.body);
-    res.status(201).json({ success: true, message: 'Log ingested successfully', data: { id: log._id } });
+    return res.status(200).json({
+      success: true,
+      data: [],
+      total: 0,
+    });
   } catch (err) {
-    next(err);
+    logger.error('[logController] getLogs error:', err.message);
+    return res.status(500).json({ success: false, message: 'Failed to fetch logs' });
   }
 };
 
-const getLogs = async (req, res, next) => {
-  try {
-    const limit = parseInt(req.query.limit) || 50;
-    const logs = await logService.getRecentLogs(limit);
-    res.status(200).json({ success: true, data: logs });
-  } catch (err) {
-    next(err);
-  }
-};
-
-module.exports = { ingest, getLogs };
+module.exports = { getLogs };
