@@ -1,17 +1,30 @@
 const logger = require('../utils/logger');
+const Alert = require('../models/Alert');
 
 /**
  * Alert Controller
- * Stage 1 — Skeleton
- * Returns empty alerts list as baseline.
+ * Stage 2 — Basic Functionality
+ * Queries real Alert documents with pagination and acknowledge support.
  */
 
+// GET /api/alerts
 const getAlerts = async (req, res) => {
   try {
+    const limit = Math.min(parseInt(req.query.limit) || 50, 100);
+    const page  = Math.max(parseInt(req.query.page)  || 1, 1);
+    const skip  = (page - 1) * limit;
+
+    const [alerts, total] = await Promise.all([
+      Alert.find().sort({ createdAt: -1 }).skip(skip).limit(limit).lean(),
+      Alert.countDocuments(),
+    ]);
+
     return res.status(200).json({
       success: true,
-      data: [],
-      total: 0,
+      total,
+      page,
+      count: alerts.length,
+      data: alerts,
     });
   } catch (err) {
     logger.error('[alertController] getAlerts error:', err.message);
@@ -19,13 +32,20 @@ const getAlerts = async (req, res) => {
   }
 };
 
+// PATCH /api/alerts/:id/acknowledge
 const acknowledgeAlert = async (req, res) => {
   try {
     const { id } = req.params;
-    if (!id) {
-      return res.status(400).json({ success: false, message: 'Alert ID is required' });
+    const alert = await Alert.findByIdAndUpdate(
+      id,
+      { isRead: true, acknowledgedAt: new Date() },
+      { new: true }
+    );
+    if (!alert) {
+      return res.status(404).json({ success: false, message: 'Alert not found' });
     }
-    return res.status(200).json({ success: true, message: 'Alert acknowledged', id });
+    logger.info(`[alertController] Alert acknowledged: ${id}`);
+    return res.status(200).json({ success: true, data: alert });
   } catch (err) {
     logger.error('[alertController] acknowledgeAlert error:', err.message);
     return res.status(500).json({ success: false, message: 'Failed to acknowledge alert' });
