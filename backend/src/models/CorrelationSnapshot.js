@@ -5,12 +5,12 @@
 const mongoose = require('mongoose');
 
 const CorrelationSnapshotSchema = new mongoose.Schema({
-  riskScore:    { type: Number, required: true, min: 0, max: 100 },
-  summary:      { type: String, default: '' },
-  attackCount:  { type: Number, default: 0 },
-  campaignCount:{ type: Number, default: 0 },
-  generated:    { type: Boolean, default: false },
-  createdAt:    { type: Date, default: Date.now, index: true },
+  riskScore:     { type: Number, required: true, min: 0, max: 100 },
+  summary:       { type: String, default: '' },
+  attackCount:   { type: Number, default: 0 },
+  campaignCount: { type: Number, default: 0 },
+  generated:     { type: Boolean, default: false },
+  createdAt:     { type: Date, default: Date.now, index: true },
 }, { versionKey: false });
 
 // Keep at most 100 snapshots to avoid unbounded growth

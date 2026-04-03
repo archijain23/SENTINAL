@@ -22,8 +22,8 @@ const SystemLogSchema = new mongoose.Schema({
     required: [true, 'URL is required'],
     trim: true
   },
-  queryParams:      { type: Object, default: {} },
-  body:             { type: Object, default: {} },
+  queryParams:     { type: Object, default: {} },
+  body:            { type: Object, default: {} },
   headers: {
     userAgent:   { type: String, default: '' },
     contentType: { type: String, default: '' },

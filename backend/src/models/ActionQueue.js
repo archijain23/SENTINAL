@@ -2,6 +2,7 @@ const mongoose = require('mongoose');
 
 const ActionQueueSchema = new mongoose.Schema(
   {
+    // Store as plain String so test/mock IDs (non-ObjectId) don't cause cast errors
     attackId: {
       type: String,
       required: true,
