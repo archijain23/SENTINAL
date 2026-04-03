@@ -1,22 +1,30 @@
-const logger = require('../utils/logger');
+const logService = require('../services/logService');
 
-/**
- * Log Controller
- * Stage 1 — Skeleton
- * Returns empty logs array as baseline.
- */
-
-const getLogs = async (req, res) => {
+// Validation now handled by Joi middleware — controller stays thin
+const ingest = async (req, res, next) => {
   try {
-    return res.status(200).json({
+    const log = await logService.ingestLog(req.body);
+    res.status(201).json({
       success: true,
-      data: [],
-      total: 0,
+      message: 'Log ingested successfully',
+      data: { id: log._id }
     });
   } catch (err) {
-    logger.error('[logController] getLogs error:', err.message);
-    return res.status(500).json({ success: false, message: 'Failed to fetch logs' });
+    next(err);
   }
 };
 
-module.exports = { getLogs };
+const getLogs = async (req, res, next) => {
+  try {
+    const limit = parseInt(req.query.limit) || 50;
+    const logs = await logService.getRecentLogs(limit);
+    res.status(200).json({
+      success: true,
+      data: logs
+    });
+  } catch (err) {
+    next(err);
+  }
+};
+
+module.exports = { ingest, getLogs };

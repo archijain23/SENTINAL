@@ -1,20 +1,21 @@
-const logger = require('../utils/logger');
+const { checkAllServices } = require('../services/serviceHealthService');
 
-/**
- * Service Status Controller
- * Stage 1 — Skeleton
- * Returns empty services list as baseline.
- */
-
-const getServiceStatus = async (req, res) => {
+const getServiceStatus = async (req, res, next) => {
   try {
-    return res.status(200).json({
+    const statuses = await checkAllServices();
+    const allOnline = statuses.every(s => s.status === 'online');
+
+    res.status(200).json({
       success: true,
-      data: [],
+      message: 'Service status retrieved',
+      data: {
+        overall: allOnline ? 'healthy' : 'degraded',
+        services: statuses,
+        checkedAt: new Date().toISOString()
+      }
     });
   } catch (err) {
-    logger.error('[serviceStatusController] getServiceStatus error:', err.message);
-    return res.status(500).json({ success: false, message: 'Failed to fetch service status' });
+    next(err);
   }
 };
 

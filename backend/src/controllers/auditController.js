@@ -1,39 +1,84 @@
-const logger = require('../utils/logger');
 const AuditLog = require('../models/AuditLog');
+const logger   = require('../utils/logger');
+const emitter  = require('../utils/eventEmitter');
+const { EVENTS } = require('../sockets/broadcastService');
 
-/**
- * Audit Controller
- * Stage 2 — Basic Functionality
- * Queries real AuditLog documents with optional action filter and pagination.
- */
-
-// GET /api/audit
-const getAuditLogs = async (req, res) => {
+// POST /api/audit/ingest  — called by Nexus agent
+const ingestAudit = async (req, res) => {
   try {
-    const limit  = Math.min(parseInt(req.query.limit) || 100, 200);
-    const page   = Math.max(parseInt(req.query.page)  || 1, 1);
-    const skip   = (page - 1) * limit;
-    const filter = {};
+    const {
+      intent_id, action, status, reason,
+      policy_rule_id, enforcement_level,
+      triggeredBy, ip, attackId, meta
+    } = req.body;
 
-    if (req.query.action) filter.action = req.query.action;
-    if (req.query.actor)  filter.actor  = { $regex: req.query.actor, $options: 'i' };
+    // Validate required fields
+    if (!action || !status) {
+      return res.status(400).json({
+        success: false,
+        message: 'action and status are required',
+        code: 'VALIDATION_ERROR'
+      });
+    }
 
-    const [logs, total] = await Promise.all([
-      AuditLog.find(filter).sort({ createdAt: -1 }).skip(skip).limit(limit).lean(),
-      AuditLog.countDocuments(filter),
-    ]);
+    // Normalise status to uppercase
+    const normStatus = (status || '').toUpperCase();
+    const allowed    = ['ALLOWED', 'BLOCKED', 'APPROVED', 'REJECTED'];
+    if (!allowed.includes(normStatus)) {
+      return res.status(400).json({
+        success: false,
+        message: `status must be one of ${allowed.join(', ')}`,
+        code: 'VALIDATION_ERROR'
+      });
+    }
 
-    return res.status(200).json({
-      success: true,
-      total,
-      page,
-      count: logs.length,
-      data: logs,
+    const entry = await AuditLog.create({
+      intent_id:         intent_id         || null,
+      action,
+      status:            normStatus,
+      reason:            reason            || '',
+      policy_rule_id:    policy_rule_id    || '',
+      enforcement_level: enforcement_level || 'nexus-policy-v1',
+      triggeredBy:       triggeredBy       || 'agent',
+      ip:                ip                || '',
+      attackId:          attackId          ? String(attackId) : null,
+      meta:              meta              || {}
     });
+
+    // Emit real-time socket event so Dashboard AuditLog panel updates live
+    emitter.emit(EVENTS.AUDIT_NEW, {
+      id:             entry._id,
+      action:         entry.action,
+      status:         entry.status,
+      reason:         entry.reason,
+      policy_rule_id: entry.policy_rule_id,
+      triggeredBy:    entry.triggeredBy,
+      ip:             entry.ip,
+      attackId:       entry.attackId,
+      timestamp:      entry.createdAt
+    });
+
+    logger.info(`[AUDIT] Ingested: ${action} → ${normStatus} (rule=${policy_rule_id})`);
+    res.status(201).json({ success: true, message: 'Audit entry recorded', data: { id: entry._id } });
   } catch (err) {
-    logger.error('[auditController] getAuditLogs error:', err.message);
-    return res.status(500).json({ success: false, message: 'Failed to fetch audit logs' });
+    logger.error('[AUDIT] ingestAudit failed:', err.message);
+    res.status(500).json({ success: false, message: 'Server error', code: 'SERVER_ERROR', detail: err.message });
   }
 };
 
-module.exports = { getAuditLogs };
+// GET /api/audit?limit=50
+const getAuditLog = async (req, res) => {
+  try {
+    const limit = Math.min(parseInt(req.query.limit) || 50, 200);
+    const entries = await AuditLog.find({})
+      .sort({ createdAt: -1 })
+      .limit(limit)
+      .select('-__v');
+    res.json({ success: true, message: 'Audit log', data: entries });
+  } catch (err) {
+    logger.error('[AUDIT] getAuditLog failed:', err.message);
+    res.status(500).json({ success: false, message: 'Server error', code: 'SERVER_ERROR' });
+  }
+};
+
+module.exports = { ingestAudit, getAuditLog };
