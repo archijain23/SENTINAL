@@ -1,18 +1,13 @@
 /**
  * atlasSearchController.js
- * Phase 5 — MongoDB Atlas Advanced Feature: Atlas Search
- *
  * GET /api/attacks/search?q=<term>&limit=20&page=1
  *
- * Uses $search aggregation stage (Atlas Search index on 'attackevents').
- * Falls back gracefully to $regex if Atlas Search index is not yet provisioned.
+ * Uses $search aggregation (Atlas Search index on 'attackevents').
+ * Falls back to $regex if Atlas Search index is not yet provisioned.
  */
 const AttackEvent = require('../models/AttackEvent');
 const logger      = require('../utils/logger');
 
-/**
- * Primary handler — Atlas $search aggregation
- */
 const searchAttacks = async (req, res) => {
   const startTime = Date.now();
   const q         = (req.query.q || '').trim();
@@ -29,7 +24,6 @@ const searchAttacks = async (req, res) => {
   }
 
   try {
-    // ── Strategy 1: Atlas $search (requires search index to be provisioned) ──
     const pipeline = [
       {
         $search: {
@@ -41,11 +35,7 @@ const searchAttacks = async (req, res) => {
           }
         }
       },
-      {
-        $addFields: {
-          score: { $meta: 'searchScore' }
-        }
-      },
+      { $addFields: { score: { $meta: 'searchScore' } } },
       { $sort: { score: -1, timestamp: -1 } },
       { $skip: skip },
       { $limit: limit },
@@ -83,7 +73,6 @@ const searchAttacks = async (req, res) => {
     });
 
   } catch (atlasErr) {
-    // ── Strategy 2: Fallback to $regex if Atlas Search index not ready ────────
     logger.warn(`[ATLAS_SEARCH] Atlas $search failed (${atlasErr.message}), falling back to $regex`);
 
     try {
@@ -98,11 +87,7 @@ const searchAttacks = async (req, res) => {
       };
 
       const [results, total] = await Promise.all([
-        AttackEvent.find(query)
-          .sort({ timestamp: -1 })
-          .skip(skip)
-          .limit(limit)
-          .lean(),
+        AttackEvent.find(query).sort({ timestamp: -1 }).skip(skip).limit(limit).lean(),
         AttackEvent.countDocuments(query)
       ]);
 
@@ -118,24 +103,16 @@ const searchAttacks = async (req, res) => {
         total,
         latencyMs : latency,
         source    : 'regex_fallback',
-        note      : 'Atlas Search index not yet provisioned — using regex fallback. Provision index "attackevents_search" in Atlas UI for full-text search.',
+        note      : 'Atlas Search index not yet provisioned — using regex fallback.',
         results
       });
     } catch (regexErr) {
       logger.error(`[SEARCH] Both strategies failed: ${regexErr.message}`);
-      return res.status(500).json({
-        success : false,
-        message : 'Search failed',
-        error   : regexErr.message
-      });
+      return res.status(500).json({ success: false, message: 'Search failed', error: regexErr.message });
     }
   }
 };
 
-/**
- * GET /api/attacks/search/stats
- * Aggregation pipeline: attack breakdown by type + severity (Atlas demo-ready)
- */
 const searchStats = async (req, res) => {
   try {
     const pipeline = [
@@ -153,25 +130,11 @@ const searchStats = async (req, res) => {
             { $group: { _id: '$detectedBy', count: { $sum: 1 } } }
           ],
           recentTrend: [
-            {
-              $match: {
-                timestamp: { $gte: new Date(Date.now() - 24 * 60 * 60 * 1000) }
-              }
-            },
-            {
-              $group: {
-                _id: {
-                  hour : { $hour: '$timestamp' },
-                  type : '$attackType'
-                },
-                count: { $sum: 1 }
-              }
-            },
+            { $match: { timestamp: { $gte: new Date(Date.now() - 24 * 60 * 60 * 1000) } } },
+            { $group: { _id: { hour: { $hour: '$timestamp' }, type: '$attackType' }, count: { $sum: 1 } } },
             { $sort: { '_id.hour': 1 } }
           ],
-          totalCount: [
-            { $count: 'total' }
-          ]
+          totalCount: [{ $count: 'total' }]
         }
       }
     ];

@@ -24,20 +24,13 @@ const getForensics = async (req, res) => {
       .lean();
 
     if (!attack) {
-      return res.status(404).json({
-        success: false,
-        message: 'Attack not found',
-        code: 'NOT_FOUND'
-      });
+      return res.status(404).json({ success: false, message: 'Attack not found', code: 'NOT_FOUND' });
     }
 
     const ip = attack.ip;
     const since24h = new Date(Date.now() - 24 * 60 * 60 * 1000);
 
-    const ipHistory = await SystemLog.find({
-      ip,
-      timestamp: { $gte: since24h }
-    })
+    const ipHistory = await SystemLog.find({ ip, timestamp: { $gte: since24h } })
       .sort({ timestamp: 1 })
       .select('method url timestamp responseCode')
       .limit(100)
@@ -100,11 +93,7 @@ const getForensics = async (req, res) => {
 
   } catch (err) {
     logger.error(`[FORENSICS] ${err.message}`);
-    return res.status(500).json({
-      success: false,
-      message: 'Forensics query failed',
-      code: 'SERVER_ERROR'
-    });
+    return res.status(500).json({ success: false, message: 'Forensics query failed', code: 'SERVER_ERROR' });
   }
 };
 

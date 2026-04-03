@@ -1,14 +1,13 @@
 /**
  * actionQueueController
  *
- * CRITICAL FIX v2: Handle both 'rate_limit_ip' AND 'permanent_ban_ip' actions.
+ * Handles both 'rate_limit_ip' AND 'permanent_ban_ip' actions.
  *
  * Nexus queues two types of IP block actions:
  *   - rate_limit_ip     → temporary block (BLOCK_DURATION_MINUTES, default 60min)
  *   - permanent_ban_ip  → permanent block (expiresAt: null, never auto-deleted)
  *
- * Both now write directly to BlockedIP MongoDB collection inside the Gateway.
- * No Python / Response Engine process required.
+ * Both write directly to BlockedIP MongoDB collection inside the Gateway.
  */
 const ActionQueue = require('../models/ActionQueue');
 const AuditLog    = require('../models/AuditLog');
@@ -48,9 +47,7 @@ async function _executeApprovedAction(item) {
     );
 
     const expiryLabel = expiresAt ? expiresAt.toISOString() : 'never (permanent)';
-    logger.info(
-      `[ACTIONS] ✓ ${action} executed: ${ip} blocked in MongoDB (expires=${expiryLabel})`
-    );
+    logger.info(`[ACTIONS] ✓ ${action} executed: ${ip} blocked in MongoDB (expires=${expiryLabel})`);
     return {
       success: true,
       detail:  `${ip} written to BlockedIP — ${isPermanent ? 'PERMANENT' : `expires in ${BLOCK_DURATION_MINUTES}min`}`,

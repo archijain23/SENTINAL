@@ -45,7 +45,6 @@ const markRead = async (req, res, next) => {
 /**
  * POST /api/alerts/nexus
  * Called by NEXUS executor after 'send_alert' action is ALLOWED by policy.
- * Creates a persisted alert and emits alert:new over Socket.io.
  */
 const ingestNexusAlert = async (req, res, next) => {
   try {

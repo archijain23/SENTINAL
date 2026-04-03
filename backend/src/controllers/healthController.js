@@ -1,22 +1,8 @@
-/**
- * healthController.js
- * GET /api/health  —  Gateway health probe
- *
- * Returns the standard SENTINAL health schema:
- *   { status, service, uptime, ... }
- *
- * Used by:
- *   • AWS ALB / ELB health checks
- *   • PM2 health monitoring
- *   • Dashboard service status panel
- *   • validate-env.sh startup script
- */
 'use strict';
 
 const mongoose = require('mongoose');
 const os = require('os');
 
-// Process start time captured once at module load
 const _startTime = Date.now();
 
 const DB_STATES = {
@@ -35,7 +21,7 @@ const getHealth = (req, res) => {
     status:    'ok',
     service:   'gateway',
     version:   '1.0.0',
-    uptime:    uptimeSeconds,            // seconds since process started
+    uptime:    uptimeSeconds,
     timestamp: new Date().toISOString(),
     environment: process.env.NODE_ENV || 'development',
     port:      parseInt(process.env.GATEWAY_PORT || process.env.PORT || '3000'),
@@ -55,7 +41,6 @@ const getHealth = (req, res) => {
     }
   };
 
-  // HTTP 503 if DB is not connected — lets load balancers route away from unhealthy instance
   const httpStatus = dbReadyState === 1 ? 200 : 503;
   res.status(httpStatus).json(response);
 };
