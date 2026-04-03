@@ -1,54 +1,35 @@
-const Alert  = require('../models/Alert');
 const logger = require('../utils/logger');
-const emitter = require('../utils/eventEmitter');
-const { EVENTS } = require('../sockets/broadcastService');
 
-const getAlerts = async (req, res, next) => {
-  try {
-    const limit    = parseInt(req.query.limit) || 20;
-    const severity = req.query.severity;
-    const query = {};
-    if (severity) query.severity = severity;
-    const alerts = await Alert.find(query)
-      .sort({ createdAt: -1 })
-      .limit(limit)
-      .populate('attackId', 'attackType ip status confidence')
-      .lean();
-    res.status(200).json({ success: true, message: 'Alerts retrieved', data: alerts });
-  } catch (err) {
-    logger.error(`[ALERTS] ${err.message}`);
-    next(err);
-  }
-};
+/**
+ * Alert Controller
+ * Stage 1 — Skeleton
+ * Returns empty alerts list as baseline.
+ */
 
-const markRead = async (req, res, next) => {
+const getAlerts = async (req, res) => {
   try {
-    const alert = await Alert.findByIdAndUpdate(req.params.id, { isRead: true }, { new: true });
-    if (!alert) return res.status(404).json({ success: false, message: 'Alert not found', code: 'NOT_FOUND' });
-    res.status(200).json({ success: true, message: 'Alert marked read', data: alert });
-  } catch (err) {
-    next(err);
-  }
-};
-
-const ingestNexusAlert = async (req, res, next) => {
-  try {
-    const { attackId, ip, attackType, severity, message, source } = req.body;
-    const alert = await Alert.create({
-      attackId: attackId || null,
-      title:    `[NEXUS] ${(attackType || 'ATTACK').toUpperCase()} Alert`,
-      message:  message  || `NEXUS triggered alert for ${ip}`,
-      severity: severity || 'high',
-      type:     'nexus_action',
-      meta:     { ip, attackType, source: source || 'sentinal-response-engine' }
+    return res.status(200).json({
+      success: true,
+      data: [],
+      total: 0,
     });
-    emitter.emit(EVENTS.ALERT_NEW, { id: alert._id, title: alert.title, severity: alert.severity, type: alert.type, timestamp: alert.createdAt });
-    logger.info(`[ALERTS] NEXUS alert ingested: ${alert.title}`);
-    res.status(201).json({ success: true, message: 'NEXUS alert recorded', data: { id: alert._id } });
   } catch (err) {
-    logger.error(`[ALERTS] ingestNexusAlert failed: ${err.message}`);
-    next(err);
+    logger.error('[alertController] getAlerts error:', err.message);
+    return res.status(500).json({ success: false, message: 'Failed to fetch alerts' });
   }
 };
 
-module.exports = { getAlerts, markRead, ingestNexusAlert };
+const acknowledgeAlert = async (req, res) => {
+  try {
+    const { id } = req.params;
+    if (!id) {
+      return res.status(400).json({ success: false, message: 'Alert ID is required' });
+    }
+    return res.status(200).json({ success: true, message: 'Alert acknowledged', id });
+  } catch (err) {
+    logger.error('[alertController] acknowledgeAlert error:', err.message);
+    return res.status(500).json({ success: false, message: 'Failed to acknowledge alert' });
+  }
+};
+
+module.exports = { getAlerts, acknowledgeAlert };
