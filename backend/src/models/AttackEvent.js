@@ -26,8 +26,16 @@ const AttackEventSchema = new mongoose.Schema({
     required: [true, 'requestId reference is required'],
     index: true
   },
-  timestamp: { type: Date, default: Date.now, index: true },
-  ip: { type: String, required: [true, 'IP address is required'], index: true },
+  timestamp: {
+    type: Date,
+    default: Date.now,
+    index: true
+  },
+  ip: {
+    type: String,
+    required: [true, 'IP address is required'],
+    index: true
+  },
   attackType: {
     type: String,
     required: [true, 'Attack type is required'],
@@ -50,12 +58,32 @@ const AttackEventSchema = new mongoose.Schema({
     required: [true, 'Detection method is required'],
     enum: ['rule', 'ml', 'both']
   },
-  confidence:           { type: Number, min: 0.0, max: 1.0, default: 1.0 },
-  payload:              { type: String, default: '' },
-  explanation:          { type: String, default: '' },
-  mitigationSuggestion: { type: String, default: '' },
-  responseCode:         { type: Number, default: null },
-  geoIntel:             { type: GeoIntelSchema, default: null }
+  confidence: {
+    type: Number,
+    min: 0.0,
+    max: 1.0,
+    default: 1.0
+  },
+  payload: {
+    type: String,
+    default: ''
+  },
+  explanation: {
+    type: String,
+    default: ''
+  },
+  mitigationSuggestion: {
+    type: String,
+    default: ''
+  },
+  responseCode: {
+    type: Number,
+    default: null
+  },
+  geoIntel: {
+    type: GeoIntelSchema,
+    default: null
+  }
 }, {
   timestamps: true,
   collection: 'attackevents'

@@ -2,7 +2,12 @@ const mongoose = require('mongoose');
 
 const ActionQueueSchema = new mongoose.Schema(
   {
-    attackId: { type: String, required: true, index: true },
+    // Store as plain String so test/mock IDs (non-ObjectId) don't cause cast errors
+    attackId: {
+      type: String,
+      required: true,
+      index: true
+    },
     action: {
       type: String,
       required: true,
@@ -33,7 +38,10 @@ const ActionQueueSchema = new mongoose.Schema(
     approvedAt:    { type: Date,   default: null },
     executedAt:    { type: Date,   default: null }
   },
-  { timestamps: true, collection: 'action_queue' }
+  {
+    timestamps: true,
+    collection: 'action_queue'
+  }
 );
 
 module.exports = mongoose.model('ActionQueue', ActionQueueSchema);

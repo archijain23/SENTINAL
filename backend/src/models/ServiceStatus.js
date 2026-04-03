@@ -13,10 +13,25 @@ const ServiceStatusSchema = new mongoose.Schema({
     enum: ['online', 'offline', 'degraded', 'unknown'],
     default: 'unknown'
   },
-  lastChecked:    { type: Date,   default: Date.now },
-  responseTimeMs: { type: Number, default: 0 },
-  errorMessage:   { type: String, default: '' },
-  meta:           { type: Object, default: {} }
-}, { timestamps: true, collection: 'servicestatuses' });
+  lastChecked: {
+    type: Date,
+    default: Date.now
+  },
+  responseTimeMs: {
+    type: Number,
+    default: 0
+  },
+  errorMessage: {
+    type: String,
+    default: ''
+  },
+  meta: {
+    type: Object,
+    default: {}
+  }
+}, {
+  timestamps: true,
+  collection: 'servicestatuses'
+});
 
 module.exports = mongoose.model('ServiceStatus', ServiceStatusSchema);
