@@ -64,22 +64,10 @@ const AttackEventSchema = new mongoose.Schema({
     max: 1.0,
     default: 1.0
   },
-  payload: {
-    type: String,
-    default: ''
-  },
-  explanation: {
-    type: String,
-    default: ''
-  },
-  mitigationSuggestion: {
-    type: String,
-    default: ''
-  },
-  responseCode: {
-    type: Number,
-    default: null
-  },
+  payload:              { type: String, default: '' },
+  explanation:          { type: String, default: '' },
+  mitigationSuggestion: { type: String, default: '' },
+  responseCode:         { type: Number, default: null },
   geoIntel: {
     type: GeoIntelSchema,
     default: null
