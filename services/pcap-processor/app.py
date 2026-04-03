@@ -1,12 +1,19 @@
 """
 PCAP Processor — SENTINAL microservice
-Stage 2: Basic Functionality — /upload POST endpoint with file validation.
+Stage 3: Functional Logic — Scapy-based packet parsing.
 """
 
 import os
 import logging
+from collections import defaultdict
 from flask import Flask, jsonify, request
 from werkzeug.utils import secure_filename
+
+try:
+    from scapy.all import rdpcap, IP, TCP, UDP, ICMP
+    SCAPY_AVAILABLE = True
+except ImportError:
+    SCAPY_AVAILABLE = False
 
 logging.basicConfig(
     level=logging.INFO,
@@ -29,18 +36,87 @@ def _allowed_file(filename):
     return ext in ALLOWED_EXTS
 
 
+def _parse_pcap(filepath):
+    """
+    Parse a pcap file using Scapy.
+    Returns summary dict: packet_count, unique_src_ips, unique_dst_ips,
+    protocols, top_ports, and extracted events.
+    """
+    if not SCAPY_AVAILABLE:
+        return {"error": "Scapy not installed"}
+
+    try:
+        packets = rdpcap(filepath)
+    except Exception as e:
+        logger.error(f"[PARSE] Failed to read pcap: {e}")
+        return {"error": f"Failed to parse file: {str(e)}"}
+
+    total        = len(packets)
+    src_ips      = set()
+    dst_ips      = set()
+    protocols    = defaultdict(int)
+    dst_ports    = defaultdict(int)
+    events       = []
+
+    for pkt in packets:
+        if IP not in pkt:
+            continue
+
+        src = pkt[IP].src
+        dst = pkt[IP].dst
+        src_ips.add(src)
+        dst_ips.add(dst)
+
+        if TCP in pkt:
+            proto = "TCP"
+            port  = pkt[TCP].dport
+            dst_ports[port] += 1
+        elif UDP in pkt:
+            proto = "UDP"
+            port  = pkt[UDP].dport
+            dst_ports[port] += 1
+        elif ICMP in pkt:
+            proto = "ICMP"
+            port  = None
+        else:
+            proto = "OTHER"
+            port  = None
+
+        protocols[proto] += 1
+
+        events.append({
+            "src_ip":   src,
+            "dst_ip":   dst,
+            "protocol": proto,
+            "dst_port": port
+        })
+
+    # Top 10 most-hit destination ports
+    top_ports = sorted(dst_ports.items(), key=lambda x: x[1], reverse=True)[:10]
+
+    logger.info(f"[PARSE] {total} packets | {len(src_ips)} src IPs | protocols: {dict(protocols)}")
+
+    return {
+        "packet_count":   total,
+        "unique_src_ips": list(src_ips),
+        "unique_dst_ips": list(dst_ips),
+        "protocols":      dict(protocols),
+        "top_ports":      [{"port": p, "count": c} for p, c in top_ports],
+        "events":         events[:500]  # cap at 500 events
+    }
+
+
 @app.route("/health")
 def health():
-    return jsonify({"status": "ok", "service": "pcap-processor"})
+    return jsonify({
+        "status":          "ok",
+        "service":         "pcap-processor",
+        "scapy_available": SCAPY_AVAILABLE
+    })
 
 
 @app.route("/upload", methods=["POST"])
 def upload():
-    """
-    Accepts a .pcap or .pcapng file upload.
-    Field name: 'file'
-    Returns a placeholder analysis result (real parsing in Stage 3).
-    """
     if "file" not in request.files:
         logger.warning("[UPLOAD] No file field in request")
         return jsonify({"error": "No file field in request"}), 400
@@ -48,32 +124,39 @@ def upload():
     f = request.files["file"]
 
     if f.filename == "":
-        logger.warning("[UPLOAD] Empty filename")
         return jsonify({"error": "No file selected"}), 400
 
     if not _allowed_file(f.filename):
         logger.warning(f"[UPLOAD] Rejected file type: {f.filename}")
         return jsonify({"error": "Only .pcap and .pcapng files are allowed"}), 400
 
-    filename = secure_filename(f.filename)
+    filename  = secure_filename(f.filename)
     save_path = os.path.join(UPLOAD_FOLDER, filename)
     f.save(save_path)
 
     file_size = os.path.getsize(save_path)
     if file_size > MAX_FILE_BYTES:
         os.remove(save_path)
-        logger.warning(f"[UPLOAD] File too large: {file_size} bytes")
         return jsonify({"error": "File exceeds 50MB limit"}), 413
 
-    logger.info(f"[UPLOAD] Received: {filename} ({file_size} bytes)")
+    logger.info(f"[UPLOAD] Processing: {filename} ({file_size} bytes)")
 
-    # Stage 2: placeholder — real Scapy parsing comes in Stage 3
+    result = _parse_pcap(save_path)
+
+    # Clean up temp file after parsing
+    try:
+        os.remove(save_path)
+    except OSError:
+        pass
+
+    if "error" in result:
+        return jsonify(result), 422
+
     return jsonify({
-        "status":   "received",
+        "status":   "parsed",
         "filename": filename,
         "size":     file_size,
-        "packets":  None,
-        "events":   []
+        **result
     }), 200
 
 
