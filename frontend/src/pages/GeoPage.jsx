@@ -2,10 +2,13 @@
  * GeoPage — Geo-IP Threat Intelligence Map
  * ==========================================
  * Ported from ayushtiwari18/SENTINAL dashboard/src/pages/GeoThreatMap.jsx
- * Adapted for archijain23/SENTINAL: uses existing ipAPI + socket services
+ * Adapted for archijain23/SENTINAL: uses ipAPI from services/api.js
+ *
+ * ipAPI method map (from frontend/src/services/api.js):
+ *   ipAPI.getHeatmap()  → GET /api/geo/heatmap
+ *   ipAPI.getStats()    → GET /api/geo/stats
  *
  * Map:  react-leaflet v4 + leaflet v1.9  (React 18 compatible)
- * Data: GET /api/geo/heatmap  + GET /api/geo/stats
  * Live: socket 'attack:new' + 'geo:event'
  */
 
@@ -13,7 +16,7 @@ import 'leaflet/dist/leaflet.css';
 import React, { useEffect, useState, useCallback } from 'react';
 import { MapContainer, TileLayer, CircleMarker, Popup, Tooltip } from 'react-leaflet';
 import L from 'leaflet';
-import { ipAPI }               from '../services/api';
+import { ipAPI }                    from '../services/api';
 import { getSocket, SOCKET_EVENTS } from '../services/socket';
 
 // Fix Leaflet default icon URLs broken by Vite asset hashing
@@ -24,7 +27,7 @@ L.Icon.Default.mergeOptions({
   shadowUrl:     'https://unpkg.com/leaflet@1.9.4/dist/images/marker-shadow.png',
 });
 
-/* ── Colour + radius by attack count (matches reference implementation) ────── */
+/* ── Colour + radius by attack count ────────────────────────────────────── */
 function countToColor(count) {
   if (count >= 100) return '#ef4444';
   if (count >= 50)  return '#f97316';
@@ -32,7 +35,6 @@ function countToColor(count) {
   if (count >= 5)   return '#22c55e';
   return '#3b82f6';
 }
-
 function countToRadius(count) {
   if (count >= 100) return 30;
   if (count >= 50)  return 22;
@@ -41,7 +43,24 @@ function countToRadius(count) {
   return 6;
 }
 
-/* ── Design tokens (SENTINAL dark theme) ─────────────────────────────── */
+/* ── Normalise heatmap point — handles both /heatmap and /threats shapes ───── */
+function normalisePoint(p) {
+  return {
+    key:         p.country_code ?? p.ip ?? `${p.lat}-${p.lng}`,
+    lat:         p.lat          ?? p.latitude  ?? null,
+    lng:         p.lng          ?? p.longitude ?? null,
+    country:     p.country      ?? p.ip        ?? 'Unknown',
+    country_code:p.country_code ?? null,
+    count:       p.count        ?? 1,
+    critical:    p.critical     ?? null,
+    high:        p.high         ?? null,
+    tor_count:   p.tor_count    ?? (p.isTor   ? 1 : null),
+    proxy_count: p.proxy_count  ?? (p.isProxy ? 1 : null),
+    avg_abuse:   p.avg_abuse    ?? p.abuseScore ?? null,
+  };
+}
+
+/* ── Design tokens ─────────────────────────────────────────────────────────── */
 const T = {
   bg:      '#0D1117',
   surface: '#161B22',
@@ -55,7 +74,7 @@ const T = {
   accent:  '#14b8a6',
 };
 
-const legend = [
+const LEGEND = [
   { color: '#3b82f6', label: '1–4'   },
   { color: '#22c55e', label: '5–19'  },
   { color: '#eab308', label: '20–49' },
@@ -73,26 +92,42 @@ export default function GeoPage() {
   const [error,   setError]   = useState(null);
   const [live,    setLive]    = useState(false);
 
-  /* ── Fetch heatmap + stats ───────────────────────────────────────────── */
+  /* ── Fetch ──────────────────────────────────────────────────────────────── */
   const fetchData = useCallback(async () => {
     setLoading(true);
     setError(null);
     try {
-      // Use existing ipAPI service — falls back gracefully if endpoints differ
-      const [heatRes, statsRes] = await Promise.all([
-        ipAPI.getGeoHeatmap  ? ipAPI.getGeoHeatmap()  : ipAPI.getGeoThreats(),
-        ipAPI.getGeoStats    ? ipAPI.getGeoStats()    : Promise.resolve(null),
+      /*
+       * ipAPI.getHeatmap  → GET /api/geo/heatmap  (returns { heatmap: [] } or [])
+       * ipAPI.getStats    → GET /api/geo/stats     (returns { threat_flags, top_countries })
+       * Falls back to ipAPI.getGeoThreats if heatmap endpoint 404s
+       */
+      const [heatRes, statsRes] = await Promise.allSettled([
+        ipAPI.getHeatmap(),
+        ipAPI.getStats(),
       ]);
 
-      // Normalise heatmap: support both {heatmap:[]} and flat array shapes
-      const raw = Array.isArray(heatRes)
-        ? heatRes
-        : (heatRes?.heatmap ?? heatRes?.data ?? heatRes?.threats ?? []);
-      setHeatmap(raw);
+      if (heatRes.status === 'fulfilled') {
+        const raw = heatRes.value;
+        // Backend may return { heatmap: [...] } or a flat array
+        const list = Array.isArray(raw)
+          ? raw
+          : (raw?.heatmap ?? raw?.data ?? raw?.threats ?? []);
+        setHeatmap(list.map(normalisePoint));
+      } else {
+        // heatmap endpoint missing — fall back to /threats
+        console.warn('[GeoPage] /api/geo/heatmap failed, falling back to /api/geo/threats:', heatRes.reason);
+        const fallback = await ipAPI.getGeoThreats();
+        const list = Array.isArray(fallback)
+          ? fallback
+          : (fallback?.data ?? fallback?.threats ?? []);
+        setHeatmap(list.map(normalisePoint));
+      }
 
-      // Normalise stats
-      const statsRaw = statsRes?.data ?? statsRes ?? null;
-      setStats(statsRaw);
+      if (statsRes.status === 'fulfilled') {
+        setStats(statsRes.value);
+      }
+      // stats failure is non-fatal — KPIs derive from heatmap as fallback
     } catch (err) {
       setError(err.message);
     } finally {
@@ -102,14 +137,10 @@ export default function GeoPage() {
 
   useEffect(() => { fetchData(); }, [fetchData]);
 
-  /* ── Real-time socket — on new attack, bump the matching country count ───── */
+  /* ── Real-time socket ───────────────────────────────────────────────────── */
   useEffect(() => {
     const socket  = getSocket();
-    const handler = () => {
-      setLive(true);
-      // Re-fetch to keep heatmap accurate (socket gives per-IP, not per-country)
-      fetchData();
-    };
+    const handler = () => { setLive(true); fetchData(); };
     socket.on(SOCKET_EVENTS.NEW_ATTACK, handler);
     socket.on('geo:event',              handler);
     return () => {
@@ -118,7 +149,7 @@ export default function GeoPage() {
     };
   }, [fetchData]);
 
-  /* ── Loading state ───────────────────────────────────────────────────── */
+  /* ── Loading ─────────────────────────────────────────────────────────────── */
   if (loading) {
     return (
       <div style={{
@@ -138,7 +169,7 @@ export default function GeoPage() {
     );
   }
 
-  /* ── Error state ──────────────────────────────────────────────────────── */
+  /* ── Error ────────────────────────────────────────────────────────────────── */
   if (error) {
     return (
       <div style={{
@@ -160,21 +191,33 @@ export default function GeoPage() {
     );
   }
 
-  /* ── Derived KPI values ────────────────────────────────────────────────── */
+  /* ── Derived KPIs (stats from backend, fall back to heatmap totals) ───────── */
   const flags = stats?.threat_flags || {};
   const statCards = [
-    { label: 'Total Tracked',  value: flags.total            ?? heatmap.reduce((s, p) => s + (p.count || 0), 0), color: T.cyan   },
-    { label: 'TOR Exits',      value: flags.tor_attacks      ?? 0,                                                 color: '#a78bfa' },
-    { label: 'Proxies',        value: flags.proxy_attacks    ?? 0,                                                 color: '#fbbf24' },
-    { label: 'High Abuse IPs', value: flags.high_abuse       ?? 0,                                                 color: T.red    },
-    { label: 'Countries',      value: flags.unique_countries ?? new Set(heatmap.map(p => p.country_code)).size,   color: '#60a5fa' },
+    {
+      label: 'Total Tracked',
+      value: flags.total            ?? heatmap.reduce((s, p) => s + (p.count || 0), 0),
+      color: T.cyan,
+    },
+    { label: 'TOR Exits',      value: flags.tor_attacks      ?? 0, color: '#a78bfa' },
+    { label: 'Proxies',        value: flags.proxy_attacks    ?? 0, color: '#fbbf24' },
+    { label: 'High Abuse IPs', value: flags.high_abuse       ?? 0, color: T.red     },
+    {
+      label: 'Countries',
+      value: flags.unique_countries ?? new Set(heatmap.map(p => p.country_code).filter(Boolean)).size,
+      color: '#60a5fa',
+    },
   ];
 
+  /* ── Render ───────────────────────────────────────────────────────────────── */
   return (
     <div style={{ padding: '1.5rem', display: 'flex', flexDirection: 'column', gap: '1.5rem' }}>
 
-      {/* ── Header ─────────────────────────────────────────────────────────── */}
-      <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', flexWrap: 'wrap', gap: '0.75rem' }}>
+      {/* Header */}
+      <div style={{
+        display: 'flex', alignItems: 'center',
+        justifyContent: 'space-between', flexWrap: 'wrap', gap: '0.75rem',
+      }}>
         <div>
           <div style={{ display: 'flex', alignItems: 'center', gap: '10px' }}>
             <h1 style={{
@@ -208,7 +251,7 @@ export default function GeoPage() {
         >↻ Refresh</button>
       </div>
 
-      {/* ── KPI Cards ───────────────────────────────────────────────────── */}
+      {/* KPI Cards */}
       <div style={{
         display: 'grid',
         gridTemplateColumns: 'repeat(auto-fit, minmax(140px, 1fr))',
@@ -220,14 +263,12 @@ export default function GeoPage() {
             padding: '1rem', border: `1px solid ${T.border}`,
           }}>
             <p style={{
-              color: T.muted, fontSize: '0.7rem',
-              textTransform: 'uppercase', letterSpacing: '0.05em', margin: 0,
-              fontFamily: 'monospace',
+              color: T.muted, fontSize: '0.7rem', textTransform: 'uppercase',
+              letterSpacing: '0.05em', margin: 0, fontFamily: 'monospace',
             }}>{card.label}</p>
             <p style={{
-              color: card.color, fontSize: '1.75rem',
-              fontWeight: 700, margin: '0.25rem 0 0',
-              fontVariantNumeric: 'tabular-nums',
+              color: card.color, fontSize: '1.75rem', fontWeight: 700,
+              margin: '0.25rem 0 0', fontVariantNumeric: 'tabular-nums',
             }}>
               {(card.value || 0).toLocaleString()}
             </p>
@@ -235,7 +276,7 @@ export default function GeoPage() {
         ))}
       </div>
 
-      {/* ── Map ─────────────────────────────────────────────────────────────── */}
+      {/* 2D Leaflet Map */}
       <div style={{
         background: T.surface2, borderRadius: '0.75rem',
         border: `1px solid ${T.border}`,
@@ -252,7 +293,7 @@ export default function GeoPage() {
           maxBoundsViscosity={1.0}
           worldCopyJump={false}
         >
-          {/* CartoDB Dark Matter — free, no API key, dark-theme native */}
+          {/* CartoDB Dark Matter — free, no API key, matches dark theme */}
           <TileLayer
             attribution='&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a> &copy; <a href="https://carto.com/attributions">CARTO</a>'
             url="https://{s}.basemaps.cartocdn.com/dark_all/{z}/{x}/{y}{r}.png"
@@ -263,7 +304,7 @@ export default function GeoPage() {
           {heatmap.map(point =>
             point.lat != null && point.lng != null ? (
               <CircleMarker
-                key={point.country_code ?? `${point.lat}-${point.lng}`}
+                key={point.key}
                 center={[point.lat, point.lng]}
                 radius={countToRadius(point.count)}
                 pathOptions={{
@@ -280,28 +321,26 @@ export default function GeoPage() {
                     <strong>{point.country}</strong>
                     {point.country_code && ` (${point.country_code})`}<br />
                     Attacks: {point.count}
-                    {point.critical  != null && <> &nbsp;|&nbsp; Critical: {point.critical}</>}<br />
-                    {point.tor_count   != null && <>TOR: {point.tor_count} &nbsp;|&nbsp; </>}
+                    {point.critical  != null && <> &nbsp;| Critical: {point.critical}</>}<br />
+                    {point.tor_count   != null && <>TOR: {point.tor_count}  </>}
                     {point.proxy_count != null && <>Proxy: {point.proxy_count}</>}
                   </div>
                 </Tooltip>
 
-                {/* Click popup */}
+                {/* Click popup — full breakdown */}
                 <Popup>
                   <div style={{ fontSize: '0.875rem', minWidth: '180px', lineHeight: 1.7, fontFamily: 'monospace' }}>
-                    <p style={{ fontWeight: 700, fontSize: '1rem', margin: '0 0 4px' }}>
-                      {point.country}
-                    </p>
+                    <p style={{ fontWeight: 700, fontSize: '1rem', margin: '0 0 4px' }}>{point.country}</p>
                     {point.country_code && (
                       <p style={{ margin: 0 }}>Code: <code>{point.country_code}</code></p>
                     )}
                     <hr style={{ margin: '6px 0', borderColor: '#e5e7eb' }} />
                     <p style={{ margin: 0 }}>Total Attacks: <strong>{point.count}</strong></p>
-                    {point.critical   != null && <p style={{ margin: 0, color: '#dc2626' }}>Critical: {point.critical}</p>}
-                    {point.high       != null && <p style={{ margin: 0, color: '#ea580c' }}>High: {point.high}</p>}
-                    {point.tor_count  != null && <p style={{ margin: 0 }}>TOR Exits: {point.tor_count}</p>}
-                    {point.proxy_count!= null && <p style={{ margin: 0 }}>Proxies: {point.proxy_count}</p>}
-                    {point.avg_abuse  != null && <p style={{ margin: 0 }}>Avg Abuse Score: {point.avg_abuse}%</p>}
+                    {point.critical    != null && <p style={{ margin: 0, color: '#dc2626' }}>Critical: {point.critical}</p>}
+                    {point.high        != null && <p style={{ margin: 0, color: '#ea580c' }}>High: {point.high}</p>}
+                    {point.tor_count   != null && <p style={{ margin: 0 }}>TOR Exits: {point.tor_count}</p>}
+                    {point.proxy_count != null && <p style={{ margin: 0 }}>Proxies: {point.proxy_count}</p>}
+                    {point.avg_abuse   != null && <p style={{ margin: 0 }}>Avg Abuse Score: {point.avg_abuse}%</p>}
                   </div>
                 </Popup>
               </CircleMarker>
@@ -310,14 +349,24 @@ export default function GeoPage() {
         </MapContainer>
       </div>
 
-      {/* ── Legend ──────────────────────────────────────────────────────────── */}
+      {/* Empty state when map loads but no geo-located points exist */}
+      {heatmap.length === 0 && (
+        <div style={{
+          textAlign: 'center', padding: '1rem',
+          color: T.muted, fontFamily: 'monospace', fontSize: '13px',
+        }}>
+          No geo-located events yet — fire a simulation on /simulate to populate the map
+        </div>
+      )}
+
+      {/* Legend */}
       <div style={{
         display: 'flex', alignItems: 'center', gap: '1.5rem',
         fontSize: '0.875rem', color: T.muted, flexWrap: 'wrap',
         fontFamily: 'monospace',
       }}>
         <span style={{ color: T.muted2, fontWeight: 500 }}>Attack Volume:</span>
-        {legend.map(l => (
+        {LEGEND.map(l => (
           <span key={l.label} style={{ display: 'flex', alignItems: 'center', gap: '0.35rem' }}>
             <span style={{
               width: '12px', height: '12px', borderRadius: '50%',
@@ -328,7 +377,7 @@ export default function GeoPage() {
         ))}
       </div>
 
-      {/* ── Top Countries Table (only shown when backend sends top_countries) ───── */}
+      {/* Top Countries Table — only rendered when backend sends top_countries */}
       {stats?.top_countries?.length > 0 && (
         <div style={{
           background: T.surface2, borderRadius: '0.75rem',
@@ -341,7 +390,10 @@ export default function GeoPage() {
             }}>🏴 Top Attacking Countries</h2>
           </div>
           <div style={{ overflowX: 'auto' }}>
-            <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: '0.875rem', fontFamily: 'monospace' }}>
+            <table style={{
+              width: '100%', borderCollapse: 'collapse',
+              fontSize: '0.875rem', fontFamily: 'monospace',
+            }}>
               <thead>
                 <tr style={{ color: T.muted, textAlign: 'left' }}>
                   {['Rank', 'Country', 'Code', 'Attacks', 'Share'].map(h => (
@@ -351,12 +403,15 @@ export default function GeoPage() {
               </thead>
               <tbody>
                 {stats.top_countries.map((c, i) => {
-                  const total = flags.total || stats.top_countries.reduce((s, x) => s + x.count, 0);
+                  const total = flags.total ||
+                    stats.top_countries.reduce((s, x) => s + x.count, 0);
                   const share = total ? Math.round((c.count / total) * 100) : 0;
                   return (
                     <tr key={c.country_code ?? i} style={{ borderTop: `1px solid ${T.border}` }}>
                       <td style={{ padding: '0.75rem 1rem', color: T.muted }}>#{i + 1}</td>
-                      <td style={{ padding: '0.75rem 1rem', color: T.text, fontWeight: 500 }}>{c.country}</td>
+                      <td style={{ padding: '0.75rem 1rem', color: T.text, fontWeight: 500 }}>
+                        {c.country}
+                      </td>
                       <td style={{ padding: '0.75rem 1rem' }}>
                         <code style={{
                           background: T.border, padding: '2px 6px',
@@ -391,17 +446,16 @@ export default function GeoPage() {
         </div>
       )}
 
-      {/* ── Leaflet overrides ────────────────────────────────────────────────── */}
+      {/* Leaflet CSS overrides — dark theme */}
       <style>{`
         .leaflet-control-attribution {
           background: rgba(13,17,23,0.80) !important;
-          color: #4a5568 !important;
-          font-size: 9px !important;
+          color: #4a5568 !important; font-size: 9px !important;
         }
         .leaflet-control-attribution a { color: #4a5568 !important; }
         .leaflet-control-zoom a {
           background: #161B22 !important;
-          color: #2dd4bf !important;
+          color: #2dd4bf   !important;
           border-color: rgba(45,212,191,0.20) !important;
         }
         .leaflet-control-zoom a:hover {
