@@ -1,6 +1,7 @@
 import React, { useEffect, useRef, useState } from 'react'
 import { gsap } from 'gsap'
 import { ScrollTrigger } from 'gsap/ScrollTrigger'
+import { Link } from 'react-router-dom'
 
 gsap.registerPlugin(ScrollTrigger)
 
@@ -21,14 +22,12 @@ export default function Navbar() {
     const nav = navRef.current
     if (!nav) return
 
-    // GSAP shrink on scroll
     ScrollTrigger.create({
       start: 'top -60',
-      onEnter:  () => setScrolled(true),
+      onEnter:     () => setScrolled(true),
       onLeaveBack: () => setScrolled(false),
     })
 
-    // Initial fade-in
     gsap.fromTo(nav,
       { y: -20, opacity: 0 },
       { y: 0,   opacity: 1, duration: 0.8, ease: 'power3.out', delay: 0.3 }
@@ -62,7 +61,6 @@ export default function Navbar() {
           className="flex items-center gap-3 group"
           aria-label="SENTINAL — Home"
         >
-          {/* SVG shield logo */}
           <svg
             width="32" height="32" viewBox="0 0 32 32" fill="none"
             aria-hidden="true"
@@ -81,9 +79,7 @@ export default function Navbar() {
           </svg>
 
           <div>
-            <div
-              className="font-mono font-bold text-sm tracking-[0.15em] uppercase text-white leading-none"
-            >
+            <div className="font-mono font-bold text-sm tracking-[0.15em] uppercase text-white leading-none">
               SENTINAL
             </div>
             <div className="font-mono text-[10px] tracking-[0.2em] text-[#00F5FF] uppercase opacity-70">
@@ -93,31 +89,25 @@ export default function Navbar() {
         </a>
 
         {/* Desktop nav */}
-        <nav
-          aria-label="Primary navigation"
-          className="hidden md:flex items-center gap-1"
-        >
+        <nav aria-label="Primary navigation" className="hidden md:flex items-center gap-1">
           {NAV_LINKS.map(({ label, href }) => (
             <a
               key={href}
               href={href}
-              className="
-                font-mono text-xs tracking-[0.1em] uppercase text-[#6B7894]
+              className="font-mono text-xs tracking-[0.1em] uppercase text-[#6B7894]
                 hover:text-[#00F5FF] px-3 py-2 rounded transition-colors duration-200
-                hover:bg-[rgba(0,245,255,0.05)] relative group
-              "
+                hover:bg-[rgba(0,245,255,0.05)] relative group"
             >
               {label}
-              <span className="
-                absolute bottom-0 left-3 right-3 h-px bg-[#00F5FF] scale-x-0
-                group-hover:scale-x-100 transition-transform duration-200 origin-left
-              " />
+              <span className="absolute bottom-0 left-3 right-3 h-px bg-[#00F5FF] scale-x-0
+                group-hover:scale-x-100 transition-transform duration-200 origin-left" />
             </a>
           ))}
         </nav>
 
-        {/* CTA + Mobile toggle */}
+        {/* Right side CTAs */}
         <div className="flex items-center gap-3">
+          {/* Live dot */}
           <div className="hidden md:flex items-center gap-2">
             <span className="live-dot" />
             <span className="font-mono text-[10px] tracking-[0.15em] uppercase text-[#00FF88]">
@@ -125,13 +115,32 @@ export default function Navbar() {
             </span>
           </div>
 
-          <a
-            href="#cta"
-            className="hidden md:inline-flex btn-cyber text-xs py-2 px-4"
-            aria-label="Request access to SENTINAL"
+          {/* ── LAUNCH DASHBOARD BUTTON ── */}
+          <Link
+            to="/login"
+            className="hidden md:inline-flex items-center gap-2 font-mono text-xs tracking-[0.1em] uppercase
+              px-4 py-2 rounded transition-all duration-200"
+            style={{
+              background: 'rgba(0,245,255,0.08)',
+              border: '1px solid rgba(0,245,255,0.25)',
+              color: '#00F5FF',
+            }}
+            onMouseEnter={e => {
+              e.currentTarget.style.background = 'rgba(0,245,255,0.15)'
+              e.currentTarget.style.boxShadow  = '0 0 16px rgba(0,245,255,0.2)'
+            }}
+            onMouseLeave={e => {
+              e.currentTarget.style.background = 'rgba(0,245,255,0.08)'
+              e.currentTarget.style.boxShadow  = 'none'
+            }}
+            aria-label="Launch the SENTINAL dashboard"
           >
-            Request Access
-          </a>
+            {/* mini shield icon */}
+            <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5" aria-hidden="true">
+              <path d="M12 2L4 6v6c0 5.25 3.5 10.15 8 11.35C17.5 22.15 21 17.25 21 12V6L12 2z" strokeLinejoin="round"/>
+            </svg>
+            Launch Dashboard
+          </Link>
 
           {/* Mobile hamburger */}
           <button
@@ -156,7 +165,7 @@ export default function Navbar() {
         aria-hidden={!isOpen}
         className={[
           'md:hidden overflow-hidden transition-all duration-300',
-          isOpen ? 'max-h-80 opacity-100' : 'max-h-0 opacity-0',
+          isOpen ? 'max-h-96 opacity-100' : 'max-h-0 opacity-0',
         ].join(' ')}
       >
         <nav
@@ -168,23 +177,29 @@ export default function Navbar() {
               key={href}
               href={href}
               onClick={() => setIsOpen(false)}
-              className="
-                font-mono text-sm tracking-[0.1em] uppercase text-[#6B7894]
+              className="font-mono text-sm tracking-[0.1em] uppercase text-[#6B7894]
                 hover:text-[#00F5FF] px-3 py-3 rounded
                 hover:bg-[rgba(0,245,255,0.05)] transition-colors duration-200
-                border-b border-[rgba(0,245,255,0.06)] last:border-none
-              "
+                border-b border-[rgba(0,245,255,0.06)] last:border-none"
             >
               {label}
             </a>
           ))}
-          <a
-            href="#cta"
-            className="btn-cyber text-xs py-2 mt-2 text-center"
+
+          {/* Mobile — Launch Dashboard */}
+          <Link
+            to="/login"
             onClick={() => setIsOpen(false)}
+            className="font-mono text-sm tracking-[0.1em] uppercase px-3 py-3 rounded mt-1
+              text-center transition-colors duration-200"
+            style={{
+              background: 'rgba(0,245,255,0.08)',
+              border: '1px solid rgba(0,245,255,0.2)',
+              color: '#00F5FF',
+            }}
           >
-            Request Access
-          </a>
+            🛡 Launch Dashboard
+          </Link>
         </nav>
       </div>
     </header>
