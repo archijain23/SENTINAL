@@ -77,7 +77,7 @@ if [ -d "$REPO_DIR/.git" ]; then
   info "Repo exists — pulling latest..."
   cd "$REPO_DIR" && git pull origin main
 else
-  git clone https://github.com/ayushtiwari18/SENTINAL.git "$REPO_DIR"
+  git clone https://github.com/archijain23/SENTINAL.git "$REPO_DIR"
 fi
 cd "$REPO_DIR"
 log "Repo ready at $REPO_DIR"
