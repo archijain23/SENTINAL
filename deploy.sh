@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 # =============================================================================
-# SENTINAL — deploy.sh  v4.0
+# SENTINAL — deploy.sh  v4.1
 # Production deployment for archijain23/SENTINAL
 # Cloud-agnostic: Vultr / AWS EC2 / DigitalOcean / Any Ubuntu 22.04 VM
 # =============================================================================
@@ -9,18 +9,18 @@
 #   — OR —
 #   bash deploy.sh
 #
-# IDEMPOTENT: Safe to re-run. Won't duplicate services, won't overwrite
-#             valid config, won't break running services.
+# IDEMPOTENT: Safe to re-run. Won’t duplicate services, won’t overwrite
+#             valid config, won’t break running services.
 # =============================================================================
 
 set -euo pipefail
 IFS=$'\n\t'
 
-# ── Colour palette ────────────────────────────────────────────────────────────
+# ── Colour palette ─────────────────────────────────────────────────────
 RED='\033[0;31m'; GREEN='\033[0;32m'; YELLOW='\033[1;33m'
 BLUE='\033[0;34m'; CYAN='\033[0;36m'; BOLD='\033[1m'; NC='\033[0m'
 
-# ── Logging helpers ───────────────────────────────────────────────────────────
+# ── Logging helpers ─────────────────────────────────────────────────
 DEPLOY_LOG="/var/log/sentinal-deploy.log"
 DEPLOY_TS=$(date '+%Y-%m-%d %H:%M:%S')
 
@@ -38,13 +38,13 @@ section() {
   _log_file "=== $1 ==="
 }
 
-# ── Trap: catch any unexpected exit ──────────────────────────────────────────
+# ── Trap: catch any unexpected exit ─────────────────────────────────
 trap 'err "Deployment failed on line $LINENO. Check $DEPLOY_LOG for details."; exit 1' ERR
 
-# ── Banner ────────────────────────────────────────────────────────────────────
+# ── Banner ────────────────────────────────────────────────────────────
 echo ""
 echo -e "${BOLD}${GREEN}╔══════════════════════════════════════════════════════════╗${NC}"
-echo -e "${BOLD}${GREEN}║          SENTINAL — Production Deploy  v4.0             ║${NC}"
+echo -e "${BOLD}${GREEN}║          SENTINAL — Production Deploy  v4.1             ║${NC}"
 echo -e "${BOLD}${GREEN}║      Vultr · AWS EC2 · DigitalOcean · Ubuntu 22.04      ║${NC}"
 echo -e "${BOLD}${GREEN}╚══════════════════════════════════════════════════════════╝${NC}"
 echo ""
@@ -94,7 +94,7 @@ export DEBIAN_FRONTEND=noninteractive
 info "Updating apt package index..."
 sudo apt-get update -qq
 
-# ── Node.js 20 ────────────────────────────────────────────────────────────────
+# ── Node.js 20 ─────────────────────────────────────────────────────────────────
 NODE_MAJOR=20
 if ! command -v node &>/dev/null || \
    [[ "$(node --version 2>/dev/null | sed 's/v//' | cut -d. -f1)" -lt "$NODE_MAJOR" ]]; then
@@ -104,14 +104,17 @@ if ! command -v node &>/dev/null || \
 fi
 log "Node.js $(node --version)"
 
-# ── Python 3 + build tools ────────────────────────────────────────────────────
-info "Installing Python3 + build tools..."
+# ── Python 3 + build tools + tshark ───────────────────────────────────────────
+info "Installing Python3 + build tools + tshark..."
+# Pre-answer tshark install prompt (it asks about non-superuser captures)
+echo "wireshark-common wireshark-common/install-setuid boolean false" | sudo debconf-set-selections
 sudo apt-get install -y \
   python3 python3-venv python3-pip python3-dev \
   build-essential libssl-dev libffi-dev libpcap-dev \
+  tshark \
   curl git jq >/dev/null 2>&1
 log "Python $(python3 --version)"
-log "Build-essential + libpcap installed"
+log "Build-essential + libpcap + tshark installed"
 
 # ── PM2 ───────────────────────────────────────────────────────────────────────
 if ! command -v pm2 &>/dev/null; then
@@ -123,7 +126,7 @@ else
 fi
 log "PM2 $(pm2 --version)"
 
-# ── serve ─────────────────────────────────────────────────────────────────────
+# ── serve ──────────────────────────────────────────────────────────────────────
 if ! command -v serve &>/dev/null; then
   info "Installing serve..."
   sudo npm install -g serve >/dev/null 2>&1
@@ -233,7 +236,7 @@ upsert_env() {
     && info "Copied backend/.env.example → backend/.env" || touch "$REPO_DIR/backend/.env"
 }
 
-# ── Generate secrets (only written if placeholders exist) ────────────────────
+# ── Generate secrets (only written if placeholders exist) ───────────────────────
 JWT_SECRET=$(node -e "console.log(require('crypto').randomBytes(48).toString('hex'))")
 API_SECRET=$(node -e "console.log(require('crypto').randomBytes(48).toString('hex'))")
 
@@ -257,20 +260,15 @@ upsert_env "$REPO_DIR/.env" "LOG_DIR"        "logs"                  "false"
 upsert_env "$REPO_DIR/.env" "JWT_SECRET"     "$JWT_SECRET"           "false"
 upsert_env "$REPO_DIR/.env" "API_SECRET"     "$API_SECRET"           "false"
 
-# Sync live secrets to backend .env
+# Sync live JWT/API secrets to backend .env
 LIVE_JWT=$(grep "^JWT_SECRET=" "$REPO_DIR/.env" | cut -d'=' -f2-)
 LIVE_API=$(grep "^API_SECRET=" "$REPO_DIR/.env" | cut -d'=' -f2-)
-upsert_env "$REPO_DIR/backend/.env" "JWT_SECRET" "$LIVE_JWT"       "true"
-upsert_env "$REPO_DIR/backend/.env" "API_SECRET" "$LIVE_API"       "true"
-upsert_env "$REPO_DIR/backend/.env" "NODE_ENV"   "production"      "true"
-upsert_env "$REPO_DIR/backend/.env" "PORT"       "3000"            "true"
+upsert_env "$REPO_DIR/backend/.env" "JWT_SECRET" "$LIVE_JWT"  "true"
+upsert_env "$REPO_DIR/backend/.env" "API_SECRET" "$LIVE_API"  "true"
+upsert_env "$REPO_DIR/backend/.env" "NODE_ENV"   "production" "true"
+upsert_env "$REPO_DIR/backend/.env" "PORT"       "3000"       "true"
 
-# Sync MONGO_URI if set in root .env
-LIVE_MONGO=$(grep "^MONGO_URI=" "$REPO_DIR/.env" 2>/dev/null | cut -d'=' -f2- || true)
-[[ -n "$LIVE_MONGO" ]] && [[ "$LIVE_MONGO" != *"username:password"* ]] && \
-  upsert_env "$REPO_DIR/backend/.env" "MONGO_URI" "$LIVE_MONGO" "true"
-
-# ── MongoDB URI prompt ────────────────────────────────────────────────────────
+# ── MongoDB URI prompt ──────────────────────────────────────────────────────
 CURRENT_MONGO=$(grep "^MONGO_URI=" "$REPO_DIR/.env" 2>/dev/null | cut -d'=' -f2- || true)
 if [[ -z "$CURRENT_MONGO" ]] || [[ "$CURRENT_MONGO" == *"username:password"* ]] || \
    [[ "$CURRENT_MONGO" == *"change_me"* ]] || [[ "$CURRENT_MONGO" == *"<"* ]]; then
@@ -279,14 +277,31 @@ if [[ -z "$CURRENT_MONGO" ]] || [[ "$CURRENT_MONGO" == *"username:password"* ]] 
   read -rp "  ▸ MongoDB Atlas URI (press Enter to skip): " MONGO_URI_INPUT
   if [[ -n "$MONGO_URI_INPUT" ]]; then
     upsert_env "$REPO_DIR/.env"         "MONGO_URI" "$MONGO_URI_INPUT" "true"
+    # FIX: re-sync to backend/.env immediately after prompt (was missing before)
     upsert_env "$REPO_DIR/backend/.env" "MONGO_URI" "$MONGO_URI_INPUT" "true"
-    log "MONGO_URI saved"
+    log "MONGO_URI saved to root .env and backend/.env"
   else
-    warn "MONGO_URI skipped — set it manually in $REPO_DIR/.env"
+    warn "MONGO_URI skipped — set it manually in $REPO_DIR/.env and $REPO_DIR/backend/.env"
   fi
 else
-  log "MONGO_URI already configured — preserved"
+  # Also sync existing valid value to backend/.env
+  upsert_env "$REPO_DIR/backend/.env" "MONGO_URI" "$CURRENT_MONGO" "true"
+  log "MONGO_URI already configured — preserved and synced to backend/.env"
 fi
+
+# ── Optional API keys: warn if still placeholder ─────────────────────────────
+CURRENT_GEMINI=$(grep "^GEMINI_API_KEY=" "$REPO_DIR/.env" 2>/dev/null | cut -d'=' -f2- || true)
+if [[ -z "$CURRENT_GEMINI" ]] || [[ "$CURRENT_GEMINI" == *"your_"* ]]; then
+  warn "GEMINI_API_KEY not set — Nexus AI features will be disabled."
+  warn "Set it later: echo 'GEMINI_API_KEY=your_key' >> $REPO_DIR/.env"
+fi
+
+CURRENT_ABUSE=$(grep "^ABUSEIPDB_API_KEY=" "$REPO_DIR/.env" 2>/dev/null | cut -d'=' -f2- || true)
+if [[ -z "$CURRENT_ABUSE" ]] || [[ "$CURRENT_ABUSE" == *"your_"* ]]; then
+  warn "ABUSEIPDB_API_KEY not set — IP reputation scoring will be skipped."
+  warn "Set it later: echo 'ABUSEIPDB_API_KEY=your_key' >> $REPO_DIR/.env"
+fi
+
 log ".env configuration complete"
 
 # =============================================================================
@@ -318,6 +333,7 @@ cd "$REPO_DIR"
 # =============================================================================
 # 7 — LOGS DIRECTORY
 # =============================================================================
+# Create before PM2 ecosystem generation so log paths always exist
 mkdir -p "$LOGS_DIR"
 log "Logs directory: $LOGS_DIR"
 
@@ -395,7 +411,7 @@ module.exports = {
     {
       name: 'sentinal-dashboard',
       script: 'serve',
-      args: '${FRONTEND_DIST} --listen 5173 --single --no-clipboard',
+      args: '${FRONTEND_DIST} --listen 5173 --single',
       cwd: root,
       interpreter: 'none',
       instances: 1, exec_mode: 'fork', watch: false,
