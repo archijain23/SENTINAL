@@ -1,112 +1,196 @@
-/**
- * NexusPage — Wired to nexusAPI + geminiAPI  (v2 — fixed getStatus call)
- *
- * POST /api/nexus/trigger  → nexusAPI.trigger()
- * POST /api/gemini/analyze → geminiAPI.analyze()
- * GET  /api/service-status → healthAPI.serviceStatus() (replaces missing nexusAPI.getStatus)
- */
-import { useState, useEffect } from 'react';
-import { nexusAPI, geminiAPI, healthAPI } from '../services/api';
+import { useState, useEffect, useCallback } from 'react';
+import { nexusAPI, healthAPI } from '../services/api';
+import { getSocket, SOCKET_EVENTS } from '../services/socket';
+import SeverityBadge from '../components/ui/SeverityBadge';
+import StatusDot from '../components/ui/StatusDot';
+import styles from './NexusPage.module.css';
+
+const TABS = ['queue', 'history'];
+
+function timeStr(ts) {
+  if (!ts) return '—';
+  return new Date(ts).toLocaleString();
+}
 
 export default function NexusPage() {
-  const [status,        setStatus]        = useState(null);
-  const [statusLoading, setStatusLoading] = useState(true);
-  const [input,         setInput]         = useState('');
-  const [result,        setResult]        = useState(null);
-  const [running,       setRunning]       = useState(false);
-  const [error,         setError]         = useState(null);
+  const [tab,       setTab]       = useState('queue');
+  const [queue,     setQueue]     = useState([]);
+  const [history,   setHistory]   = useState([]);
+  const [agentUp,   setAgentUp]   = useState(null);
+  const [loading,   setLoading]   = useState(true);
+  const [acting,    setActing]    = useState(null);
+  const [error,     setError]     = useState(null);
 
-  // Use /api/service-status to show nexus-agent health (getStatus doesn't exist)
-  useEffect(() => {
-    healthAPI.serviceStatus()
-      .then(res => {
-        const services = res?.data?.services ?? res?.services ?? [];
-        const nexus = Array.isArray(services)
-          ? services.find(s => /nexus/i.test(s.name ?? s.service ?? ''))
-          : null;
-        setStatus(nexus ?? { name: 'nexus-agent', status: 'unknown' });
-      })
-      .catch(() => setStatus(null))
-      .finally(() => setStatusLoading(false));
+  const loadQueue = useCallback(async () => {
+    try {
+      setLoading(true);
+      const [q, h] = await Promise.all([
+        nexusAPI.getPending(),
+        nexusAPI.getHistory(50),
+      ]);
+      setQueue(Array.isArray(q) ? q : q?.actions ?? []);
+      setHistory(Array.isArray(h) ? h : h?.actions ?? []);
+    } catch (e) { setError(e.message); }
+    finally     { setLoading(false); }
   }, []);
 
-  async function handleAnalyze() {
-    if (!input.trim()) return;
-    setRunning(true); setError(null); setResult(null);
-    try {
-      const [nexusRes, geminiRes] = await Promise.allSettled([
-        nexusAPI.trigger({ payload: input }),
-        geminiAPI.analyze({ prompt: input }),
-      ]);
-      setResult({
-        nexus:  nexusRes.status  === 'fulfilled' ? nexusRes.value  : null,
-        gemini: geminiRes.status === 'fulfilled' ? geminiRes.value : null,
-      });
-    } catch (err) {
-      setError(err.message);
-    } finally {
-      setRunning(false);
-    }
-  }
+  useEffect(() => {
+    loadQueue();
+    // Check nexus-agent health
+    healthAPI.serviceStatus()
+      .then(res => {
+        const svcs = Array.isArray(res) ? res : res?.services ?? [];
+        const nx   = svcs.find(s => /nexus/i.test(s.name ?? s.service ?? ''));
+        setAgentUp(nx?.status === 'online' || nx?.status === 'healthy');
+      })
+      .catch(() => setAgentUp(false));
+  }, [loadQueue]);
 
-  const nexusOnline = status && (status.status === 'up' || status.status === 'healthy' || status.status === 'online');
+  // Live queue updates
+  useEffect(() => {
+    const s = getSocket();
+    s.on(SOCKET_EVENTS.QUEUE_UPDATE, (item) => {
+      setQueue(prev => {
+        const exists = prev.find(a => a._id === item._id || a.id === item.id);
+        if (exists) return prev.map(a => (a._id === item._id || a.id === item.id) ? { ...a, ...item } : a);
+        return [item, ...prev];
+      });
+    });
+    return () => s.off(SOCKET_EVENTS.QUEUE_UPDATE);
+  }, []);
+
+  const decide = async (id, action) => {
+    setActing(id + action);
+    try {
+      if (action === 'approve') await nexusAPI.approve(id);
+      else                      await nexusAPI.reject(id);
+      setQueue(prev => prev.filter(a => (a._id ?? a.id) !== id));
+      await nexusAPI.getHistory(50).then(h => setHistory(Array.isArray(h) ? h : h?.actions ?? []));
+    } catch (e) { setError(e.message); }
+    setActing(null);
+  };
+
+  const pending = queue.length;
 
   return (
-    <div className="space-y-5">
-      <h1 className="font-mono font-bold text-sm tracking-widest uppercase" style={{ color: '#00F5FF' }}>NEXUS AI Engine</h1>
-
-      <div className="flex items-center gap-3">
-        <span className="font-mono text-[10px] uppercase tracking-widest" style={{ color: '#6B7894' }}>Model Status:</span>
-        {statusLoading ? (
-          <span style={{ color: '#6B7894' }} className="font-mono text-xs">⋯</span>
-        ) : nexusOnline ? (
-          <span className="px-2 py-0.5 rounded font-mono text-[10px] uppercase tracking-wider"
-            style={{ background: 'rgba(0,255,136,0.1)', border: '1px solid rgba(0,255,136,0.3)', color: '#00FF88' }}>
-            Online — {status.name ?? 'nexus-agent'}
-          </span>
-        ) : (
-          <span className="px-2 py-0.5 rounded font-mono text-[10px] uppercase tracking-wider"
-            style={{ background: 'rgba(255,61,113,0.1)', border: '1px solid rgba(255,61,113,0.3)', color: '#FF3D71' }}>
-            Offline
-          </span>
-        )}
+    <div className={styles.page}>
+      {/* Header */}
+      <div className={styles.header}>
+        <div className={styles.titleRow}>
+          <h1 className={styles.title}>Nexus Action Queue</h1>
+          {pending > 0 && <span className={styles.pendingBadge}>{pending} pending</span>}
+        </div>
+        <div className={styles.agentStatus}>
+          <StatusDot status={agentUp === null ? 'idle' : agentUp ? 'online' : 'offline'} />
+          <span className={styles.agentLabel}>{agentUp === null ? 'Checking…' : agentUp ? 'Agent Online' : 'Agent Offline'}</span>
+          <button className={styles.refreshBtn} onClick={loadQueue} disabled={loading}>
+            <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+              <polyline points="23 4 23 10 17 10"/><polyline points="1 20 1 14 7 14"/>
+              <path d="M3.51 9a9 9 0 0 1 14.85-3.36L23 10M1 14l4.64 4.36A9 9 0 0 0 20.49 15"/>
+            </svg>
+          </button>
+        </div>
       </div>
 
-      <div className="space-y-3">
-        <label className="font-mono text-[10px] uppercase tracking-widest" style={{ color: '#6B7894' }}>Payload / Log to Analyze</label>
-        <textarea value={input} onChange={e => setInput(e.target.value)}
-          placeholder="Paste raw HTTP request, log entry, or payload for AI threat analysis…"
-          rows={6}
-          className="w-full px-4 py-3 rounded font-mono text-xs bg-transparent outline-none resize-none"
-          style={{ border: '1px solid rgba(0,245,255,0.2)', color: '#B8C4E0', lineHeight: 1.8 }} />
-        <button onClick={handleAnalyze} disabled={running || !input.trim()}
-          className="px-5 py-2 rounded font-mono text-xs uppercase tracking-wider disabled:opacity-40 transition-all"
-          style={{ background: 'rgba(0,245,255,0.1)', border: '1px solid rgba(0,245,255,0.3)', color: '#00F5FF' }}>
-          {running ? 'Analyzing…' : '▶ Run Analysis'}
-        </button>
+      {/* Tabs */}
+      <div className={styles.tabs}>
+        {TABS.map(t => (
+          <button key={t} className={`${styles.tab} ${tab === t ? styles.tabActive : ''}`} onClick={() => setTab(t)}>
+            {t === 'queue' ? `Queue${pending > 0 ? ` (${pending})` : ''}` : 'History'}
+          </button>
+        ))}
       </div>
 
-      {error && (
-        <div className="p-3 rounded text-xs font-mono"
-          style={{ background: 'rgba(255,61,113,0.08)', border: '1px solid rgba(255,61,113,0.2)', color: '#FF3D71' }}>
-          ⚠️ {error}
+      {error && <div className={styles.errorBanner}>⚠ {error}</div>}
+
+      {/* Queue Tab */}
+      {tab === 'queue' && (
+        <div className={styles.queueList}>
+          {loading ? (
+            [...Array(4)].map((_, i) => <div key={i} className={styles.skeletonCard} />)
+          ) : queue.length === 0 ? (
+            <div className={styles.empty}>
+              <svg width="36" height="36" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1">
+                <polyline points="20 6 9 17 4 12"/>
+              </svg>
+              <p>No pending actions — queue is clear</p>
+            </div>
+          ) : queue.map(item => {
+            const id  = item._id ?? item.id;
+            const sev = item.severity ?? item.priority ?? 'medium';
+            return (
+              <div key={id} className={styles.queueCard}>
+                <div className={styles.cardTop}>
+                  <div className={styles.cardLeft}>
+                    <SeverityBadge level={sev} />
+                    <span className={styles.actionType}>{item.action ?? item.type ?? 'Unknown Action'}</span>
+                  </div>
+                  <span className={styles.cardTime}>{timeStr(item.createdAt ?? item.timestamp)}</span>
+                </div>
+                {item.reason && <p className={styles.cardReason}>{item.reason}</p>}
+                <div className={styles.cardMeta}>
+                  {item.targetIP && <span className={styles.metaChip}>IP: {item.targetIP}</span>}
+                  {item.sourceIP && <span className={styles.metaChip}>Src: {item.sourceIP}</span>}
+                  {item.attackId && <span className={styles.metaChip}>Attack: {item.attackId}</span>}
+                </div>
+                {item.confidence != null && (
+                  <div className={styles.confidenceBar}>
+                    <span className={styles.confLabel}>Confidence</span>
+                    <div className={styles.barTrack}>
+                      <div className={styles.barFill} style={{ width: `${Math.round(item.confidence * 100)}%` }} />
+                    </div>
+                    <span className={styles.confValue}>{Math.round(item.confidence * 100)}%</span>
+                  </div>
+                )}
+                <div className={styles.cardActions}>
+                  <button
+                    className={styles.approveBtn}
+                    onClick={() => decide(id, 'approve')}
+                    disabled={acting === id + 'approve'}
+                  >
+                    {acting === id + 'approve' ? '…' : '✓ Approve'}
+                  </button>
+                  <button
+                    className={styles.rejectBtn}
+                    onClick={() => decide(id, 'reject')}
+                    disabled={acting === id + 'reject'}
+                  >
+                    {acting === id + 'reject' ? '…' : '✕ Reject'}
+                  </button>
+                </div>
+              </div>
+            );
+          })}
         </div>
       )}
 
-      {result && (
-        <div className="grid grid-cols-1 xl:grid-cols-2 gap-4">
-          <div className="p-4 rounded-lg space-y-2" style={{ background: '#0D1117', border: '1px solid rgba(0,245,255,0.08)' }}>
-            <p className="font-mono text-[10px] uppercase tracking-widest" style={{ color: '#00F5FF' }}>Nexus ML Result</p>
-            <pre className="text-xs font-mono whitespace-pre-wrap break-all" style={{ color: '#B8C4E0', maxHeight: '300px', overflowY: 'auto' }}>
-              {result.nexus ? JSON.stringify(result.nexus?.data ?? result.nexus, null, 2) : 'Service unavailable'}
-            </pre>
-          </div>
-          <div className="p-4 rounded-lg space-y-2" style={{ background: '#0D1117', border: '1px solid rgba(0,245,255,0.08)' }}>
-            <p className="font-mono text-[10px] uppercase tracking-widest" style={{ color: '#00FF88' }}>Gemini AI Insight</p>
-            <pre className="text-xs font-mono whitespace-pre-wrap break-all" style={{ color: '#B8C4E0', maxHeight: '300px', overflowY: 'auto' }}>
-              {result.gemini ? JSON.stringify(result.gemini?.data ?? result.gemini, null, 2) : 'Service unavailable'}
-            </pre>
-          </div>
+      {/* History Tab */}
+      {tab === 'history' && (
+        <div className={styles.tableWrap}>
+          <table className={styles.table}>
+            <thead>
+              <tr>
+                <th>Action</th><th>Target</th><th>Decision</th><th>By</th><th>Time</th>
+              </tr>
+            </thead>
+            <tbody>
+              {history.length === 0 ? (
+                <tr><td colSpan={5}><div className={styles.empty}><p>No history yet</p></div></td></tr>
+              ) : history.map((h, i) => (
+                <tr key={h._id ?? h.id ?? i}>
+                  <td className={styles.histAction}>{h.action ?? h.type ?? '—'}</td>
+                  <td className={styles.histMono}>{h.targetIP ?? h.sourceIP ?? '—'}</td>
+                  <td>
+                    <span className={h.decision === 'approved' ? styles.decApproved : styles.decRejected}>
+                      {h.decision ?? '—'}
+                    </span>
+                  </td>
+                  <td className={styles.histMono}>{h.decidedBy ?? h.approvedBy ?? h.rejectedBy ?? '—'}</td>
+                  <td className={styles.histMono}>{timeStr(h.decidedAt ?? h.createdAt)}</td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
         </div>
       )}
     </div>

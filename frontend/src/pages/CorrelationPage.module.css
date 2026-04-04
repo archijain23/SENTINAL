@@ -1,0 +1,43 @@
+.page { display: flex; flex-direction: column; gap: 1rem; }
+.header { display: flex; justify-content: space-between; align-items: flex-start; flex-wrap: wrap; gap: 0.75rem; }
+.title { font-size: 1.125rem; font-weight: 600; color: #E2E8F0; }
+.subtitle { font-size: 0.72rem; color: #4A5568; margin-top: 3px; }
+.runBtn { display: flex; align-items: center; gap: 6px; background: rgba(0,245,255,0.08); border: 1px solid rgba(0,245,255,0.25); color: #00F5FF; padding: 8px 18px; border-radius: 7px; font-size: 0.78rem; cursor: pointer; transition: background 0.15s; white-space: nowrap; }
+.runBtn:hover { background: rgba(0,245,255,0.14); }
+.runBtn:disabled { opacity: 0.45; cursor: not-allowed; }
+.spinner { display: inline-block; width: 10px; height: 10px; border: 2px solid rgba(0,245,255,0.3); border-top-color: #00F5FF; border-radius: 50%; animation: spin 0.7s linear infinite; }
+@keyframes spin { to { transform: rotate(360deg); } }
+.tabs { display: flex; gap: 4px; border-bottom: 1px solid rgba(255,255,255,0.06); }
+.tab { background: transparent; border: none; border-bottom: 2px solid transparent; color: #4A5568; padding: 8px 16px; font-size: 0.8rem; cursor: pointer; transition: all 0.15s; margin-bottom: -1px; }
+.tab:hover { color: #718096; }
+.tabActive { color: #00F5FF; border-bottom-color: #00F5FF; }
+.errorBanner { background: rgba(255,61,113,0.08); border: 1px solid rgba(255,61,113,0.2); color: #FF3D71; padding: 8px 12px; border-radius: 6px; font-size: 0.75rem; font-family: monospace; }
+.clusterList, .historyList { display: flex; flex-direction: column; gap: 0.6rem; }
+.empty { display: flex; flex-direction: column; align-items: center; gap: 0.75rem; padding: 3rem; color: #2D3748; }
+.empty p { font-size: 0.8rem; color: #4A5568; }
+.cluster { background: rgba(255,255,255,0.02); border: 1px solid rgba(255,255,255,0.07); border-radius: 8px; overflow: hidden; }
+.clusterHeader { width: 100%; display: flex; justify-content: space-between; align-items: center; padding: 0.875rem 1rem; cursor: pointer; background: transparent; border: none; text-align: left; transition: background 0.15s; }
+.clusterHeader:hover { background: rgba(255,255,255,0.02); }
+.clusterLeft { display: flex; align-items: center; gap: 0.6rem; flex-wrap: wrap; }
+.clusterIndex { font-family: monospace; font-size: 0.68rem; color: #4A5568; }
+.clusterName { font-size: 0.85rem; font-weight: 500; color: #CBD5E0; }
+.clusterCount { font-size: 0.68rem; font-family: monospace; color: #4A5568; background: rgba(255,255,255,0.04); border: 1px solid rgba(255,255,255,0.07); padding: 1px 7px; border-radius: 9999px; }
+.chevron { font-size: 0.6rem; color: #4A5568; }
+.clusterBody { padding: 0 1rem 1rem; display: flex; flex-direction: column; gap: 0.6rem; border-top: 1px solid rgba(255,255,255,0.05); }
+.clusterSummary { font-size: 0.78rem; color: #718096; padding-top: 0.75rem; line-height: 1.6; }
+.chips { display: flex; flex-wrap: wrap; gap: 5px; }
+.tacticChip { font-size: 0.65rem; background: rgba(0,245,255,0.06); border: 1px solid rgba(0,245,255,0.15); color: #00F5FF; padding: 2px 8px; border-radius: 4px; font-family: monospace; }
+.ipList { display: flex; flex-wrap: wrap; align-items: center; gap: 5px; }
+.ipLabel { font-size: 0.65rem; color: #4A5568; }
+.ipChip { font-size: 0.65rem; font-family: monospace; background: rgba(255,255,255,0.04); border: 1px solid rgba(255,255,255,0.07); color: #718096; padding: 2px 7px; border-radius: 4px; }
+.ipMore { font-size: 0.65rem; color: #4A5568; }
+.recommendation { background: rgba(0,245,255,0.04); border: 1px solid rgba(0,245,255,0.1); border-radius: 6px; padding: 0.6rem 0.75rem; }
+.recLabel { font-size: 0.65rem; text-transform: uppercase; letter-spacing: 0.06em; color: #00F5FF; display: block; margin-bottom: 4px; }
+.recText { font-size: 0.75rem; color: #718096; line-height: 1.5; }
+.skeletonCard { height: 80px; border-radius: 8px; background: linear-gradient(90deg, rgba(255,255,255,0.03) 25%, rgba(255,255,255,0.06) 50%, rgba(255,255,255,0.03) 75%); background-size: 200% 100%; animation: shimmer 1.4s ease-in-out infinite; }
+@keyframes shimmer { 0%{background-position:-200% 0} 100%{background-position:200% 0} }
+.histCard { background: rgba(255,255,255,0.02); border: 1px solid rgba(255,255,255,0.07); border-radius: 8px; padding: 0.875rem 1rem; }
+.histTop { display: flex; justify-content: space-between; align-items: center; margin-bottom: 0.4rem; }
+.histTime { font-size: 0.72rem; font-family: monospace; color: #4A5568; }
+.histClusters { font-size: 0.68rem; font-family: monospace; color: #00F5FF; }
+.histSummary { font-size: 0.75rem; color: #718096; }

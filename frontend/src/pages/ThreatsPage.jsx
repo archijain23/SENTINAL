@@ -1,170 +1,208 @@
-/**
- * ThreatsPage — Wired to attacksAPI (v2 — fixed method names)
- *
- * attacksAPI.getRecent()  → GET /api/attacks/recent  (was wrongly .getAll())
- * actionsAPI.blockIP()    → POST /api/actions/block
- * Socket: NEW_ATTACK      → real-time prepend
- *
- * Note: no /resolve endpoint exists in backend; resolved locally.
- */
 import { useState, useEffect, useCallback } from 'react';
-import { attacksAPI, actionsAPI } from '../services/api';
+import { useNavigate } from 'react-router-dom';
+import { attacksAPI, blocklistAPI } from '../services/api';
 import { getSocket, SOCKET_EVENTS } from '../services/socket';
+import SeverityBadge from '../components/ui/SeverityBadge';
+import styles from './ThreatsPage.module.css';
 
-const SEVERITY_COLOR = {
-  critical: '#FF3D71',
-  high:     '#FF8C00',
-  medium:   '#FFD700',
-  low:      '#00FF88',
-};
+const SEVERITIES  = ['all', 'critical', 'high', 'medium', 'low'];
+const SORT_FIELDS = ['timestamp', 'severity', 'type', 'sourceIP'];
+const SEV_ORDER   = { critical: 0, high: 1, medium: 2, low: 3 };
+
+function timeStr(ts) {
+  if (!ts) return '—';
+  return new Date(ts).toLocaleTimeString('en-US', { hour12: false });
+}
 
 export default function ThreatsPage() {
-  const [attacks, setAttacks] = useState([]);
-  const [loading, setLoading] = useState(true);
-  const [error,   setError]   = useState(null);
-  const [page,    setPage]    = useState(1);
-  const [total,   setTotal]   = useState(0);
-  const LIMIT = 20;
+  const navigate = useNavigate();
+  const [attacks,  setAttacks]  = useState([]);
+  const [loading,  setLoading]  = useState(true);
+  const [error,    setError]    = useState(null);
+  const [page,     setPage]     = useState(1);
+  const [total,    setTotal]    = useState(0);
+  const [sevFilter, setSevFilter] = useState('all');
+  const [search,   setSearch]   = useState('');
+  const [sortBy,   setSortBy]   = useState('timestamp');
+  const [sortDir,  setSortDir]  = useState('desc');
+  const [blocking, setBlocking] = useState(null);
+  const LIMIT = 25;
 
-  const fetchAttacks = useCallback(async () => {
+  const load = useCallback(async () => {
     setLoading(true);
     try {
-      // Correct method: getRecent (not getAll — that method does not exist)
-      const res  = await attacksAPI.getRecent({ page, limit: LIMIT });
-      const data = res?.data ?? res;
-      setAttacks(Array.isArray(data?.attacks) ? data.attacks :
-                 Array.isArray(data)           ? data          : []);
-      setTotal(data?.total ?? data?.count ?? 0);
-    } catch (err) {
-      setError(err.message);
-    } finally {
-      setLoading(false);
-    }
+      const res  = await attacksAPI.getRecent(LIMIT * page);
+      const data = Array.isArray(res) ? res : res?.attacks ?? res?.data ?? [];
+      setAttacks(data);
+      setTotal(res?.total ?? res?.count ?? data.length);
+    } catch (e) { setError(e.message); }
+    finally     { setLoading(false); }
   }, [page]);
 
-  useEffect(() => { fetchAttacks(); }, [fetchAttacks]);
+  useEffect(() => { load(); }, [load]);
 
-  // Real-time: prepend new attack to list
+  // Live prepend
   useEffect(() => {
-    const socket = getSocket();
-    const handler = (attack) => {
-      setAttacks(prev => [attack, ...prev.slice(0, LIMIT - 1)]);
+    const s = getSocket();
+    const h = (a) => {
+      setAttacks(prev => [a, ...prev].slice(0, 500));
       setTotal(t => t + 1);
     };
-    socket.on(SOCKET_EVENTS.NEW_ATTACK, handler);
-    return () => socket.off(SOCKET_EVENTS.NEW_ATTACK, handler);
+    s.on(SOCKET_EVENTS.NEW_ATTACK, h);
+    return () => s.off(SOCKET_EVENTS.NEW_ATTACK, h);
   }, []);
 
-  async function handleBlock(ip) {
+  const blockIP = async (ip, e) => {
+    e.stopPropagation();
+    setBlocking(ip);
     try {
-      await actionsAPI.blockIP(ip, { source: 'manual', page: 'threats' });
-      setAttacks(prev => prev.map(a => a.sourceIP === ip ? { ...a, status: 'blocked' } : a));
-    } catch (err) {
-      alert('Block failed: ' + err.message);
-    }
-  }
+      await blocklistAPI.block({ ip, reason: 'Manual block from Threats page', source: 'analyst' });
+      setAttacks(prev => prev.map(a => a.sourceIP === ip ? { ...a, blocked: true } : a));
+    } catch (err) { alert('Block failed: ' + err.message); }
+    setBlocking(null);
+  };
 
-  // Resolve is local-only (no backend endpoint); marks row as resolved in UI
-  function handleResolve(id) {
+  const resolveLocal = (id, e) => {
+    e.stopPropagation();
     setAttacks(prev => prev.map(a =>
       (a._id === id || a.id === id) ? { ...a, status: 'resolved' } : a
     ));
-  }
+  };
+
+  const toggleSort = (field) => {
+    if (sortBy === field) setSortDir(d => d === 'asc' ? 'desc' : 'asc');
+    else { setSortBy(field); setSortDir('desc'); }
+  };
+
+  const filtered = attacks
+    .filter(a => {
+      const sev = a.severity?.toLowerCase() ?? '';
+      const ok  = sevFilter === 'all' || sev === sevFilter;
+      const s   = search.toLowerCase();
+      const ms  = !search ||
+        a.sourceIP?.includes(s) ||
+        a.type?.toLowerCase().includes(s) ||
+        a.attackType?.toLowerCase().includes(s) ||
+        a.country?.toLowerCase().includes(s);
+      return ok && ms;
+    })
+    .sort((a, b) => {
+      let va, vb;
+      if (sortBy === 'severity') {
+        va = SEV_ORDER[a.severity?.toLowerCase()] ?? 99;
+        vb = SEV_ORDER[b.severity?.toLowerCase()] ?? 99;
+      } else if (sortBy === 'timestamp') {
+        va = new Date(a.timestamp ?? 0).getTime();
+        vb = new Date(b.timestamp ?? 0).getTime();
+      } else {
+        va = (a[sortBy] ?? '').toString().toLowerCase();
+        vb = (b[sortBy] ?? '').toString().toLowerCase();
+      }
+      if (va < vb) return sortDir === 'asc' ? -1 : 1;
+      if (va > vb) return sortDir === 'asc' ?  1 : -1;
+      return 0;
+    });
+
+  const SortIcon = ({ field }) => (
+    <span className={styles.sortIcon} style={{ opacity: sortBy === field ? 1 : 0.25 }}>
+      {sortBy === field ? (sortDir === 'asc' ? '▲' : '▼') : '▼'}
+    </span>
+  );
 
   return (
-    <div className="space-y-4">
-      <div className="flex items-center justify-between">
-        <h1 className="font-mono font-bold text-sm tracking-widest uppercase" style={{ color: '#00F5FF' }}>
-          Threat Events {total > 0 && <span style={{ color: '#6B7894' }}>({total.toLocaleString()})</span>}
-        </h1>
-        <button onClick={fetchAttacks}
-          className="font-mono text-xs px-3 py-1.5 rounded transition-all"
-          style={{ background: 'rgba(0,245,255,0.08)', border: '1px solid rgba(0,245,255,0.2)', color: '#00F5FF' }}>
-          ↺ Refresh
+    <div className={styles.page}>
+      {/* Header */}
+      <div className={styles.header}>
+        <div className={styles.titleRow}>
+          <h1 className={styles.title}>Threat Events</h1>
+          {total > 0 && <span className={styles.totalBadge}>{total.toLocaleString()} total</span>}
+        </div>
+        <button className={styles.refreshBtn} onClick={load} disabled={loading}>
+          <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+            <polyline points="23 4 23 10 17 10"/><polyline points="1 20 1 14 7 14"/>
+            <path d="M3.51 9a9 9 0 0 1 14.85-3.36L23 10M1 14l4.64 4.36A9 9 0 0 0 20.49 15"/>
+          </svg>
         </button>
       </div>
 
-      {error && (
-        <div className="p-3 rounded text-xs font-mono"
-          style={{ background: 'rgba(255,61,113,0.08)', border: '1px solid rgba(255,61,113,0.2)', color: '#FF3D71' }}>
-          ⚠️ {error}
+      {/* Filters */}
+      <div className={styles.filters}>
+        <input className={styles.search} placeholder="Search IP, type, country…" value={search} onChange={e => setSearch(e.target.value)} />
+        <div className={styles.sevTabs}>
+          {SEVERITIES.map(s => (
+            <button key={s} className={`${styles.sevTab} ${sevFilter === s ? styles.sevTabActive : ''}`} onClick={() => setSevFilter(s)}>{s}</button>
+          ))}
         </div>
-      )}
+      </div>
 
-      <div className="rounded-lg overflow-hidden" style={{ border: '1px solid rgba(0,245,255,0.08)' }}>
-        <table className="w-full text-xs font-mono">
+      {error && <div className={styles.errorBanner}>⚠ {error}</div>}
+
+      {/* Table */}
+      <div className={styles.tableWrap}>
+        <table className={styles.table}>
           <thead>
-            <tr style={{ background: 'rgba(0,245,255,0.04)', borderBottom: '1px solid rgba(0,245,255,0.08)' }}>
-              {['Time', 'Source IP', 'Type', 'Severity', 'Status', 'Actions'].map(h => (
-                <th key={h} className="px-4 py-3 text-left tracking-widest uppercase"
-                  style={{ color: '#6B7894', fontSize: '10px' }}>{h}</th>
+            <tr>
+              {[['timestamp','Time'],['sourceIP','Source IP'],['type','Type'],['severity','Severity'],['country','Country'],['status','Status'],['','Actions']].map(([f, label]) => (
+                <th key={label} onClick={f ? () => toggleSort(f) : undefined} className={f ? styles.thSortable : ''}>
+                  {label} {f && <SortIcon field={f} />}
+                </th>
               ))}
             </tr>
           </thead>
           <tbody>
             {loading ? (
-              <tr><td colSpan={6} className="px-4 py-8 text-center" style={{ color: '#3D4663' }}>Loading…</td></tr>
-            ) : attacks.length === 0 ? (
-              <tr><td colSpan={6} className="px-4 py-8 text-center" style={{ color: '#3D4663' }}>No threat events found.</td></tr>
-            ) : attacks.map((a) => (
-              <tr key={a._id ?? a.id} style={{ borderBottom: '1px solid rgba(0,245,255,0.04)' }}
-                className="hover:bg-[rgba(0,245,255,0.02)] transition-colors">
-                <td className="px-4 py-3" style={{ color: '#6B7894' }}>
-                  {a.timestamp ? new Date(a.timestamp).toLocaleTimeString() : '—'}
-                </td>
-                <td className="px-4 py-3" style={{ color: '#B8C4E0' }}>{a.sourceIP ?? '—'}</td>
-                <td className="px-4 py-3" style={{ color: '#B8C4E0' }}>{a.type ?? a.attackType ?? '—'}</td>
-                <td className="px-4 py-3">
-                  <span className="px-2 py-0.5 rounded text-[10px] uppercase tracking-wider"
-                    style={{
-                      color:      SEVERITY_COLOR[a.severity?.toLowerCase()] ?? '#B8C4E0',
-                      background: `${SEVERITY_COLOR[a.severity?.toLowerCase()] ?? '#B8C4E0'}18`,
-                    }}>
-                    {a.severity ?? '—'}
-                  </span>
-                </td>
-                <td className="px-4 py-3" style={{
-                  color: a.status === 'blocked' ? '#FF3D71' : a.status === 'resolved' ? '#00FF88' : '#6B7894'
-                }}>
-                  {a.status ?? 'active'}
-                </td>
-                <td className="px-4 py-3">
-                  <div className="flex gap-2">
-                    {a.status !== 'blocked' && (
-                      <button onClick={() => handleBlock(a.sourceIP)}
-                        className="px-2 py-0.5 rounded text-[10px] transition-all"
-                        style={{ background: 'rgba(255,61,113,0.1)', border: '1px solid rgba(255,61,113,0.3)', color: '#FF3D71' }}>
-                        Block
+              [...Array(8)].map((_, i) => (
+                <tr key={i}><td colSpan={7}><div className={styles.skeletonRow} /></td></tr>
+              ))
+            ) : filtered.length === 0 ? (
+              <tr><td colSpan={7}>
+                <div className={styles.empty}>
+                  <p>No threats match your filter</p>
+                </div>
+              </td></tr>
+            ) : filtered.slice(0, LIMIT * page).map(a => {
+              const id = a._id ?? a.id;
+              const isResolved = a.status === 'resolved';
+              const isBlocked  = a.blocked || a.status === 'blocked';
+              return (
+                <tr key={id} className={styles.row} onClick={() => navigate(`/app/threats/${id}`)}>
+                  <td className={styles.monoMuted}>{timeStr(a.timestamp)}</td>
+                  <td className={styles.monoAccent}>{a.sourceIP ?? '—'}</td>
+                  <td className={styles.typeCell}>{a.type ?? a.attackType ?? '—'}</td>
+                  <td><SeverityBadge level={a.severity ?? 'low'} /></td>
+                  <td className={styles.monoMuted}>{a.country ?? '—'}</td>
+                  <td>
+                    <span className={isBlocked ? styles.statusBlocked : isResolved ? styles.statusResolved : styles.statusActive}>
+                      {isBlocked ? 'blocked' : isResolved ? 'resolved' : a.status ?? 'active'}
+                    </span>
+                  </td>
+                  <td onClick={e => e.stopPropagation()}>
+                    <div className={styles.rowActions}>
+                      {!isBlocked && (
+                        <button className={styles.blockBtn} onClick={e => blockIP(a.sourceIP, e)} disabled={blocking === a.sourceIP}>
+                          {blocking === a.sourceIP ? '…' : 'Block'}
+                        </button>
+                      )}
+                      {!isResolved && (
+                        <button className={styles.resolveBtn} onClick={e => resolveLocal(id, e)}>Resolve</button>
+                      )}
+                      <button className={styles.detailBtn} onClick={() => navigate(`/app/threats/${id}`)}>
+                        Details →
                       </button>
-                    )}
-                    {a.status !== 'resolved' && (
-                      <button onClick={() => handleResolve(a._id ?? a.id)}
-                        className="px-2 py-0.5 rounded text-[10px] transition-all"
-                        style={{ background: 'rgba(0,255,136,0.1)', border: '1px solid rgba(0,255,136,0.3)', color: '#00FF88' }}>
-                        Resolve
-                      </button>
-                    )}
-                  </div>
-                </td>
-              </tr>
-            ))}
+                    </div>
+                  </td>
+                </tr>
+              );
+            })}
           </tbody>
         </table>
       </div>
 
       {total > LIMIT && (
-        <div className="flex items-center gap-3 justify-end">
-          <button onClick={() => setPage(p => Math.max(1, p - 1))} disabled={page === 1}
-            className="font-mono text-xs px-3 py-1.5 rounded disabled:opacity-30 transition-all"
-            style={{ background: 'rgba(0,245,255,0.06)', border: '1px solid rgba(0,245,255,0.15)', color: '#00F5FF' }}>
-            ← Prev
-          </button>
-          <span className="font-mono text-xs" style={{ color: '#6B7894' }}>Page {page}</span>
-          <button onClick={() => setPage(p => p + 1)} disabled={page * LIMIT >= total}
-            className="font-mono text-xs px-3 py-1.5 rounded disabled:opacity-30 transition-all"
-            style={{ background: 'rgba(0,245,255,0.06)', border: '1px solid rgba(0,245,255,0.15)', color: '#00F5FF' }}>
-            Next →
-          </button>
+        <div className={styles.pagination}>
+          <button className={styles.pageBtn} onClick={() => setPage(p => Math.max(1, p - 1))} disabled={page === 1}>← Prev</button>
+          <span className={styles.pageInfo}>Page {page} · {filtered.length} shown</span>
+          <button className={styles.pageBtn} onClick={() => setPage(p => p + 1)} disabled={page * LIMIT >= total}>Next →</button>
         </div>
       )}
     </div>

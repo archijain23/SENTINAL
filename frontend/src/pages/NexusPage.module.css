@@ -1,0 +1,47 @@
+.page { display: flex; flex-direction: column; gap: 1rem; }
+.header { display: flex; justify-content: space-between; align-items: center; flex-wrap: wrap; gap: 0.75rem; }
+.titleRow { display: flex; align-items: center; gap: 0.75rem; }
+.title { font-size: 1.125rem; font-weight: 600; color: #E2E8F0; }
+.pendingBadge { background: rgba(255,140,0,0.12); color: #FF8C00; border: 1px solid rgba(255,140,0,0.28); padding: 2px 8px; border-radius: 9999px; font-size: 0.68rem; font-family: monospace; font-weight: 600; }
+.agentStatus { display: flex; align-items: center; gap: 0.5rem; }
+.agentLabel { font-size: 0.72rem; color: #4A5568; }
+.refreshBtn { background: rgba(255,255,255,0.04); border: 1px solid rgba(255,255,255,0.08); color: #718096; padding: 6px; border-radius: 6px; cursor: pointer; display: flex; align-items: center; }
+.tabs { display: flex; gap: 4px; border-bottom: 1px solid rgba(255,255,255,0.06); padding-bottom: 0; }
+.tab { background: transparent; border: none; border-bottom: 2px solid transparent; color: #4A5568; padding: 8px 16px; font-size: 0.8rem; cursor: pointer; transition: all 0.15s; margin-bottom: -1px; text-transform: capitalize; }
+.tab:hover { color: #718096; }
+.tabActive { color: #00F5FF; border-bottom-color: #00F5FF; }
+.errorBanner { background: rgba(255,61,113,0.08); border: 1px solid rgba(255,61,113,0.2); color: #FF3D71; padding: 8px 12px; border-radius: 6px; font-size: 0.75rem; font-family: monospace; }
+.queueList { display: flex; flex-direction: column; gap: 0.75rem; }
+.skeletonCard { height: 120px; border-radius: 8px; background: linear-gradient(90deg, rgba(255,255,255,0.03) 25%, rgba(255,255,255,0.06) 50%, rgba(255,255,255,0.03) 75%); background-size: 200% 100%; animation: shimmer 1.4s ease-in-out infinite; }
+@keyframes shimmer { 0%{background-position:-200% 0} 100%{background-position:200% 0} }
+.empty { display: flex; flex-direction: column; align-items: center; gap: 0.75rem; padding: 2.5rem; color: #2D3748; }
+.empty p { font-size: 0.8rem; color: #4A5568; }
+.queueCard { background: rgba(255,255,255,0.02); border: 1px solid rgba(255,255,255,0.07); border-radius: 10px; padding: 1rem; display: flex; flex-direction: column; gap: 0.6rem; }
+.cardTop { display: flex; justify-content: space-between; align-items: center; }
+.cardLeft { display: flex; align-items: center; gap: 0.6rem; }
+.actionType { font-size: 0.85rem; font-weight: 500; color: #CBD5E0; }
+.cardTime { font-size: 0.68rem; font-family: monospace; color: #4A5568; }
+.cardReason { font-size: 0.75rem; color: #718096; }
+.cardMeta { display: flex; flex-wrap: wrap; gap: 5px; }
+.metaChip { font-size: 0.65rem; font-family: monospace; background: rgba(255,255,255,0.04); border: 1px solid rgba(255,255,255,0.07); color: #4A5568; padding: 2px 7px; border-radius: 4px; }
+.confidenceBar { display: flex; align-items: center; gap: 0.5rem; }
+.confLabel { font-size: 0.65rem; color: #4A5568; white-space: nowrap; }
+.barTrack { flex: 1; height: 4px; background: rgba(255,255,255,0.06); border-radius: 2px; overflow: hidden; }
+.barFill { height: 100%; background: linear-gradient(90deg, #00F5FF, #00FF88); border-radius: 2px; transition: width 0.4s ease; }
+.confValue { font-size: 0.65rem; font-family: monospace; color: #00F5FF; white-space: nowrap; }
+.cardActions { display: flex; gap: 0.5rem; padding-top: 0.25rem; }
+.approveBtn { background: rgba(0,255,136,0.08); border: 1px solid rgba(0,255,136,0.25); color: #00FF88; padding: 5px 16px; border-radius: 6px; font-size: 0.75rem; cursor: pointer; transition: background 0.15s; }
+.approveBtn:hover { background: rgba(0,255,136,0.14); }
+.approveBtn:disabled { opacity: 0.4; cursor: not-allowed; }
+.rejectBtn { background: rgba(255,61,113,0.08); border: 1px solid rgba(255,61,113,0.25); color: #FF3D71; padding: 5px 16px; border-radius: 6px; font-size: 0.75rem; cursor: pointer; transition: background 0.15s; }
+.rejectBtn:hover { background: rgba(255,61,113,0.14); }
+.rejectBtn:disabled { opacity: 0.4; cursor: not-allowed; }
+.tableWrap { overflow-x: auto; border-radius: 8px; border: 1px solid rgba(255,255,255,0.06); }
+.table { width: 100%; border-collapse: collapse; font-size: 0.78rem; }
+.table thead tr { background: rgba(255,255,255,0.02); }
+.table th { padding: 10px 14px; text-align: left; color: #4A5568; font-weight: 500; font-size: 0.68rem; text-transform: uppercase; letter-spacing: 0.06em; border-bottom: 1px solid rgba(255,255,255,0.06); white-space: nowrap; }
+.table td { padding: 9px 14px; border-bottom: 1px solid rgba(255,255,255,0.03); vertical-align: middle; }
+.histAction { color: #CBD5E0; font-size: 0.78rem; }
+.histMono { font-family: monospace; font-size: 0.72rem; color: #4A5568; }
+.decApproved { font-size: 0.65rem; font-family: monospace; color: #00FF88; text-transform: uppercase; }
+.decRejected { font-size: 0.65rem; font-family: monospace; color: #FF3D71; text-transform: uppercase; }

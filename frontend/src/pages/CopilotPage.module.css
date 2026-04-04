@@ -1,0 +1,39 @@
+.page { display: flex; flex-direction: column; gap: 0.75rem; height: 100%; max-height: calc(100vh - 100px); }
+.header { display: flex; justify-content: space-between; align-items: center; }
+.titleRow { display: flex; align-items: center; gap: 0.6rem; }
+.avatarDot { width: 8px; height: 8px; border-radius: 50%; background: #00F5FF; box-shadow: 0 0 6px rgba(0,245,255,0.6); animation: pulse 2s ease-in-out infinite; }
+@keyframes pulse { 0%,100%{opacity:1} 50%{opacity:0.4} }
+.title { font-size: 1.125rem; font-weight: 600; color: #E2E8F0; }
+.powered { font-size: 0.62rem; font-family: monospace; text-transform: uppercase; letter-spacing: 0.08em; color: #4A5568; background: rgba(255,255,255,0.04); border: 1px solid rgba(255,255,255,0.07); padding: 2px 7px; border-radius: 4px; }
+.clearBtn { background: rgba(255,255,255,0.04); border: 1px solid rgba(255,255,255,0.08); color: #4A5568; padding: 5px 12px; border-radius: 6px; font-size: 0.72rem; cursor: pointer; transition: all 0.15s; }
+.clearBtn:hover { color: #718096; border-color: rgba(255,255,255,0.12); }
+.clearBtn:disabled { opacity: 0.3; cursor: not-allowed; }
+.messageArea { flex: 1; overflow-y: auto; display: flex; flex-direction: column; gap: 1rem; padding: 1rem; background: rgba(255,255,255,0.01); border: 1px solid rgba(255,255,255,0.05); border-radius: 10px; min-height: 320px; max-height: calc(100vh - 300px); }
+.message { display: flex; gap: 0.6rem; align-items: flex-start; }
+.msg_user { flex-direction: row-reverse; }
+.msg_error .msgBubble { border-color: rgba(255,61,113,0.3) !important; background: rgba(255,61,113,0.06) !important; }
+.msgAvatar { width: 26px; height: 26px; border-radius: 50%; background: rgba(0,245,255,0.08); border: 1px solid rgba(0,245,255,0.15); display: flex; align-items: center; justify-content: center; color: #00F5FF; flex-shrink: 0; margin-top: 2px; }
+.msgBubble { max-width: 75%; display: flex; flex-direction: column; gap: 4px; }
+.msg_user .msgBubble { align-items: flex-end; }
+.msgText { font-size: 0.8rem; line-height: 1.65; color: #CBD5E0; background: rgba(255,255,255,0.03); border: 1px solid rgba(255,255,255,0.07); border-radius: 8px; padding: 0.6rem 0.875rem; white-space: pre-wrap; word-break: break-word; font-family: inherit; margin: 0; }
+.msg_user .msgText { background: rgba(0,245,255,0.07); border-color: rgba(0,245,255,0.15); color: #E2E8F0; }
+.msgTime { font-size: 0.62rem; font-family: monospace; color: #2D3748; padding: 0 2px; }
+.cursor { animation: blink 0.8s step-end infinite; }
+@keyframes blink { 0%,100%{opacity:1} 50%{opacity:0} }
+.typingDots { display: flex; gap: 4px; padding: 0.6rem 0.875rem; background: rgba(255,255,255,0.03); border: 1px solid rgba(255,255,255,0.07); border-radius: 8px; }
+.typingDots span { width: 6px; height: 6px; border-radius: 50%; background: #4A5568; animation: bounce 1.2s ease-in-out infinite; }
+.typingDots span:nth-child(2) { animation-delay: 0.2s; }
+.typingDots span:nth-child(3) { animation-delay: 0.4s; }
+@keyframes bounce { 0%,80%,100%{transform:translateY(0)} 40%{transform:translateY(-6px)} }
+.suggestions { display: flex; gap: 0.5rem; flex-wrap: wrap; }
+.suggestion { background: rgba(0,245,255,0.04); border: 1px solid rgba(0,245,255,0.12); color: #4A5568; padding: 6px 12px; border-radius: 20px; font-size: 0.72rem; cursor: pointer; transition: all 0.15s; }
+.suggestion:hover { background: rgba(0,245,255,0.08); border-color: rgba(0,245,255,0.2); color: #00F5FF; }
+.inputRow { display: flex; gap: 0.5rem; align-items: flex-end; }
+.input { flex: 1; background: rgba(255,255,255,0.03); border: 1px solid rgba(255,255,255,0.1); color: #E2E8F0; padding: 10px 14px; border-radius: 8px; font-size: 0.82rem; outline: none; resize: none; line-height: 1.5; max-height: 120px; font-family: inherit; transition: border-color 0.15s; }
+.input::placeholder { color: #4A5568; }
+.input:focus { border-color: rgba(0,245,255,0.3); }
+.input:disabled { opacity: 0.5; }
+.sendBtn { background: rgba(0,245,255,0.1); border: 1px solid rgba(0,245,255,0.25); color: #00F5FF; width: 40px; height: 40px; border-radius: 8px; cursor: pointer; display: flex; align-items: center; justify-content: center; flex-shrink: 0; transition: background 0.15s; }
+.sendBtn:hover { background: rgba(0,245,255,0.18); }
+.sendBtn:disabled { opacity: 0.3; cursor: not-allowed; }
+.hint { font-size: 0.62rem; color: #2D3748; text-align: center; font-family: monospace; }
