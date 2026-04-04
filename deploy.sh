@@ -1,6 +1,6 @@
 #!/bin/bash
 # =============================================================================
-# SENTINAL — deploy.sh  v2.0
+# SENTINAL — deploy.sh  v2.1
 # One-command full deployment — Vultr / AWS / Any fresh Ubuntu 22.04 instance
 # =============================================================================
 
@@ -19,7 +19,7 @@ warn() { echo -e "${YELLOW}[!]${NC} $1"; }
 err()  { echo -e "${RED}[✗]${NC} $1"; }
 
 echo -e "\n${BOLD}╔══════════════════════════════════════════════╗${NC}"
-echo -e "${BOLD}║     SENTINAL — Auto Deploy Script v2.0       ║${NC}"
+echo -e "${BOLD}║     SENTINAL — Auto Deploy Script v2.1       ║${NC}"
 echo -e "${BOLD}║     Vultr / AWS / Ubuntu 22.04 Edition       ║${NC}"
 echo -e "${BOLD}╚══════════════════════════════════════════════╝${NC}\n"
 
@@ -68,6 +68,17 @@ fi
 cd "$REPO_DIR"
 log "Repo ready at $REPO_DIR"
 
+# Confirm dashboard directory name
+if [ -d "$REPO_DIR/dashboard" ]; then
+  FRONTEND_DIR="dashboard"
+elif [ -d "$REPO_DIR/frontend" ]; then
+  FRONTEND_DIR="frontend"
+else
+  err "Cannot find dashboard or frontend directory in repo!"
+  exit 1
+fi
+log "Frontend directory: $FRONTEND_DIR/"
+
 # ── STEP 3: Python virtual environments ────────────────────────────────────
 echo -e "\n${BOLD}── STEP 3: Setting up Python virtual environments ──${NC}"
 setup_venv() {
@@ -92,10 +103,8 @@ setup_venv "services/nexus-agent"      "Nexus Agent"
 echo -e "\n${BOLD}── STEP 4: Installing Node.js dependencies ──${NC}"
 cd "$REPO_DIR/backend" && npm install --omit=dev --silent
 log "Backend deps installed"
-
-# Frontend is in frontend/ directory
-cd "$REPO_DIR/frontend" && npm install --silent
-log "Frontend deps installed"
+cd "$REPO_DIR/$FRONTEND_DIR" && npm install --silent
+log "Frontend ($FRONTEND_DIR) deps installed"
 cd "$REPO_DIR"
 
 # ── STEP 5: Environment configuration ──────────────────────────────────────
@@ -114,7 +123,7 @@ fi
 JWT_SECRET=$(node -e "console.log(require('crypto').randomBytes(32).toString('hex'))")
 API_SECRET=$(node -e "console.log(require('crypto').randomBytes(32).toString('hex'))")
 
-# Update or append each key safely
+# Safe upsert: update existing key or append if missing
 upsert_env() {
   local KEY=$1 VAL=$2
   if grep -q "^${KEY}=" "$REPO_DIR/.env"; then
@@ -124,21 +133,21 @@ upsert_env() {
   fi
 }
 
-upsert_env "PUBLIC_URL"      "http://$PUBLIC_IP"
-upsert_env "NODE_ENV"        "production"
-upsert_env "JWT_SECRET"      "$JWT_SECRET"
-upsert_env "API_SECRET"      "$API_SECRET"
-upsert_env "GATEWAY_PORT"    "3000"
-upsert_env "DETECTION_PORT"  "8002"
-upsert_env "PCAP_PORT"       "8003"
-upsert_env "NEXUS_PORT"      "8004"
-upsert_env "DASHBOARD_PORT"  "5173"
-upsert_env "DETECTION_URL"   "http://localhost:8002"
-upsert_env "PCAP_URL"        "http://localhost:8003"
-upsert_env "NEXUS_URL"       "http://localhost:8004"
-upsert_env "GATEWAY_URL"     "http://localhost:3000"
+upsert_env "PUBLIC_URL"     "http://$PUBLIC_IP"
+upsert_env "NODE_ENV"       "production"
+upsert_env "JWT_SECRET"     "$JWT_SECRET"
+upsert_env "API_SECRET"     "$API_SECRET"
+upsert_env "GATEWAY_PORT"   "3000"
+upsert_env "DETECTION_PORT" "8002"
+upsert_env "PCAP_PORT"      "8003"
+upsert_env "NEXUS_PORT"     "8004"
+upsert_env "DASHBOARD_PORT" "5173"
+upsert_env "DETECTION_URL"  "http://localhost:8002"
+upsert_env "PCAP_URL"       "http://localhost:8003"
+upsert_env "NEXUS_URL"      "http://localhost:8004"
+upsert_env "GATEWAY_URL"    "http://localhost:3000"
 
-# MongoDB URI prompt if not set
+# MongoDB URI — prompt only if not already set
 CURRENT_MONGO=$(grep '^MONGO_URI=' "$REPO_DIR/.env" 2>/dev/null | cut -d'=' -f2- || echo "")
 if [ -z "$CURRENT_MONGO" ] || [ "$CURRENT_MONGO" = "your_mongo_uri_here" ] || [[ "$CURRENT_MONGO" == *"<"* ]]; then
   echo ""
@@ -151,23 +160,26 @@ else
 fi
 log ".env configured"
 
-# ── STEP 6: Build React dashboard (frontend/) ──────────────────────────────
-echo -e "\n${BOLD}── STEP 6: Configuring and building frontend ──${NC}"
-cat > "$REPO_DIR/frontend/.env.production" << EOF
+# ── STEP 6: Build React dashboard ─────────────────────────────────────────
+echo -e "\n${BOLD}── STEP 6: Configuring and building dashboard ──${NC}"
+cat > "$REPO_DIR/$FRONTEND_DIR/.env.production" << EOF
 VITE_API_URL=http://$PUBLIC_IP:3000
 VITE_SOCKET_URL=http://$PUBLIC_IP:3000
 VITE_WS_URL=ws://$PUBLIC_IP:3000
 EOF
-log "frontend/.env.production → http://$PUBLIC_IP:3000"
+log "$FRONTEND_DIR/.env.production → http://$PUBLIC_IP:3000"
 
-cd "$REPO_DIR/frontend"
-npm run build > /dev/null 2>&1
-log "Frontend built → frontend/dist/"
+cd "$REPO_DIR/$FRONTEND_DIR"
+info "Building React app (this may take 1-2 minutes)..."
+npm run build
+log "Dashboard built → $FRONTEND_DIR/dist/"
 cd "$REPO_DIR"
 
-# ── STEP 7: Write PM2 ecosystem (with venv paths + dashboard) ──────────────
+# ── STEP 7: Write PM2 ecosystem (5 services incl. dashboard) ──────────────
 echo -e "\n${BOLD}── STEP 7: Writing PM2 ecosystem ──${NC}"
-cat > "$REPO_DIR/ecosystem.config.js" << 'ECOSYSTEM'
+# Use shell variable for frontend dir inside the heredoc
+FRONTEND_DIST="$REPO_DIR/$FRONTEND_DIR/dist"
+cat > "$REPO_DIR/ecosystem.config.js" << ECOSYSTEM
 'use strict';
 const path = require('path');
 const root  = __dirname;
@@ -230,24 +242,24 @@ module.exports = {
       log_date_format: 'YYYY-MM-DD HH:mm:ss',
     },
 
-    // 5. React Dashboard (Vite build served via 'serve')
+    // 5. React Dashboard (served via 'serve')
     {
       name:        'sentinal-dashboard',
       script:      'serve',
-      args:        '-s frontend/dist -l 5173',
-      cwd:         __dirname,
+      args:        '-s ${FRONTEND_DIST} -l 5173',
+      cwd:         root,
       interpreter: 'none',
       instances:   1, exec_mode: 'fork', watch: false, autorestart: true,
       env: { NODE_ENV: 'production' },
-      out_file:   path.join(__dirname, 'logs', 'dashboard.out.log'),
-      error_file: path.join(__dirname, 'logs', 'dashboard.err.log'),
+      out_file:   path.join(root, 'logs', 'dashboard.out.log'),
+      error_file: path.join(root, 'logs', 'dashboard.err.log'),
       log_date_format: 'YYYY-MM-DD HH:mm:ss',
     },
 
   ],
 };
 ECOSYSTEM
-log "ecosystem.config.js written (5 services)"
+log "ecosystem.config.js written (5 services, dashboard → $FRONTEND_DIR/dist/)"
 
 # ── STEP 8: Start all services ─────────────────────────────────────────────
 echo -e "\n${BOLD}── STEP 8: Starting all services with PM2 ──${NC}"
@@ -257,15 +269,15 @@ cd "$REPO_DIR"
 pm2 start ecosystem.config.js
 log "All 5 services started"
 
-# ── STEP 9: PM2 startup (survive reboots) ──────────────────────────────────
+# ── STEP 9: PM2 startup on reboot ─────────────────────────────────────────
 echo -e "\n${BOLD}── STEP 9: Configuring PM2 startup on reboot ──${NC}"
 pm2 startup systemd -u root --hp /root > /dev/null 2>&1 || \
   systemctl enable pm2-root > /dev/null 2>&1 || true
 pm2 save > /dev/null 2>&1
-log "PM2 startup configured — services will auto-restart after reboot"
+log "PM2 startup configured — services survive reboots"
 
-# ── STEP 10: Health checks ─────────────────────────────────────────────────
-echo -e "\n${BOLD}── STEP 10: Running health checks (waiting 10s for startup) ──${NC}"
+# ── STEP 10: Health checks ─────────────────────────────────────────────
+echo -e "\n${BOLD}── STEP 10: Running health checks (waiting 10s) ──${NC}"
 sleep 10
 
 check_health() {
@@ -287,7 +299,7 @@ check_health "sentinal-dashboard" "http://localhost:5173"
 
 # ── Final output ───────────────────────────────────────────────────────────
 warn "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
-warn " IMPORTANT: Add server IP to MongoDB Atlas!"
+warn " IMPORTANT: Add your server IP to MongoDB Atlas!"
 warn " Atlas → Network Access → Add IP Address → $PUBLIC_IP"
 warn "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
 
