@@ -49,15 +49,10 @@ export const getGeoStats        = ()            => http.get('/api/geo/stats').th
 export const getGeoThreats      = ()            => http.get('/api/geo/threats').then(unwrap);
 export const getTopSources      = ()            => http.get('/api/geo/top-sources').then(unwrap);
 
-/* PCAP
-   uploadPcap: sends field name 'pcap' (canonical) — backend accepts 'pcap' OR 'file'.
-   getSessions: GET /api/pcap  — reads from MongoDB, no microservice needed.
-   analyzePcap: re-uses the upload endpoint for re-processing; when microservice is
-                offline the backend returns 503 PCAP_PROCESSOR_OFFLINE with a clear message.
-*/
+/* PCAP */
 export const uploadPcap = (file, projectId = 'pcap-upload') => {
   const form = new FormData();
-  form.append('pcap', file);          // canonical field name expected by multer
+  form.append('pcap', file);
   form.append('projectId', projectId);
   return http.post('/api/pcap/upload', form, {
     headers: { 'Content-Type': 'multipart/form-data' },
@@ -90,13 +85,12 @@ export const runSimulation      = (payload)     => http.post('/api/simulate', pa
 /* Correlation */
 export const getCorrelations    = ()            => http.get('/api/correlation').then(unwrap);
 
-/* Gemini AI
-   geminiCorrelate: Gemini rate-limit retry can take up to 65s (59s delay + overhead).
-   The default 15s axios timeout fires before the retry completes, causing a false
-   "timeout" error on the frontend even when the backend succeeds.
-   Fix: give correlate its own 150s timeout — well above the worst-case 65s retry window.
-   All other endpoints keep the 15s default.
-*/
+/* Settings */
+export const getSettings        = ()            => http.get('/api/settings').then(unwrap);
+export const updateSettings     = (partial)     => http.put('/api/settings', partial).then(unwrap);
+export const testApiKey         = ()            => http.post('/api/settings/test-api-key').then(unwrap);
+
+/* Gemini AI */
 export const geminiChat = (message, history = []) =>
   http.post('/api/gemini/chat', { message, history }).then(unwrap);
 
@@ -114,7 +108,6 @@ export const geminiReport = (attackId, reportType = 'technical') =>
 export const geminiReportExportUrl = (attackId, reportType = 'technical') =>
   `${BASE}/api/gemini/report/${attackId}/export?reportType=${reportType}`;
 
-// 150s timeout: Gemini rate-limit retry window is up to ~65s; 15s default kills it too early
 export const geminiCorrelate = () =>
   http.post('/api/gemini/correlate', {}, { timeout: 150_000 }).then(unwrap);
 
@@ -152,6 +145,7 @@ export const logsAPI = {
 export const healthAPI = {
   serviceStatus: getServiceStatus,
   get:           getHealth,
+  services:      getServiceStatus,
 };
 
 export const ipAPI = {
@@ -163,10 +157,7 @@ export const ipAPI = {
 };
 
 export const pcapAPI = {
-  // Upload a .pcap file for processing (requires pcap-processor microservice on :8003)
   upload:      uploadPcap,
-
-  // List attack events from MongoDB — works WITHOUT microservice
   getSessions: getPcapSessions,
   getJobs:     getPcapJobs,
   getJob:      getPcapJob,
@@ -175,10 +166,8 @@ export const pcapAPI = {
 export const blocklistAPI = {
   getAll:    getBlocklist,
   check:     checkBlockedIP,
-  // canonical names
   block:     blockIP,
   unblock:   unblockIP,
-  // aliases used by BlocklistPage
   addEntry:  blockIP,
   remove:    unblockIP,
 };
@@ -191,7 +180,8 @@ export const nexusAPI = {
 };
 
 export const auditAPI = {
-  getLog: getAuditLog,
+  getLog:  getAuditLog,
+  getLogs: getAuditLog,
 };
 
 export const simulateAPI = {
@@ -213,4 +203,10 @@ export const aiAPI = {
   reportExport: geminiReportExportUrl,
   correlate:    geminiCorrelate,
   mutate:       geminiMutate,
+};
+
+export const settingsAPI = {
+  get:        getSettings,
+  update:     updateSettings,
+  testApiKey: testApiKey,
 };
