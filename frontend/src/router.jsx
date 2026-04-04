@@ -36,7 +36,7 @@ const router = createBrowserRouter([
   // Protected app routes — all share AppShell
   {
     path: '/app',
-    element: <ProtectedRoute><AppShell /></ProtectedRoute>,
+    element: <AppShell />,
     children: [
       { index: true,          element: <Navigate to="/app/dashboard" replace /> },
       { path: 'dashboard',   element: <Suspense fallback={<PageLoader />}><DashboardPage /></Suspense> },
