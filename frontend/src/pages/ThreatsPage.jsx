@@ -1,8 +1,11 @@
 /**
- * ThreatsPage — Wired to attacksAPI
+ * ThreatsPage — Wired to attacksAPI (v2 — fixed method names)
  *
- * Fetches paginated attack events from GET /api/attacks.
- * Shows a live-updating table with block/resolve actions.
+ * attacksAPI.getRecent()  → GET /api/attacks/recent  (was wrongly .getAll())
+ * actionsAPI.blockIP()    → POST /api/actions/block
+ * Socket: NEW_ATTACK      → real-time prepend
+ *
+ * Note: no /resolve endpoint exists in backend; resolved locally.
  */
 import { useState, useEffect, useCallback } from 'react';
 import { attacksAPI, actionsAPI } from '../services/api';
@@ -16,20 +19,22 @@ const SEVERITY_COLOR = {
 };
 
 export default function ThreatsPage() {
-  const [attacks, setAttacks]   = useState([]);
-  const [loading, setLoading]   = useState(true);
-  const [error, setError]       = useState(null);
-  const [page, setPage]         = useState(1);
-  const [total, setTotal]       = useState(0);
+  const [attacks, setAttacks] = useState([]);
+  const [loading, setLoading] = useState(true);
+  const [error,   setError]   = useState(null);
+  const [page,    setPage]    = useState(1);
+  const [total,   setTotal]   = useState(0);
   const LIMIT = 20;
 
   const fetchAttacks = useCallback(async () => {
     setLoading(true);
     try {
-      const res = await attacksAPI.getAll({ page, limit: LIMIT });
-      const data  = res?.data ?? res;
-      setAttacks(Array.isArray(data?.attacks) ? data.attacks : Array.isArray(data) ? data : []);
-      setTotal(data?.total ?? 0);
+      // Correct method: getRecent (not getAll — that method does not exist)
+      const res  = await attacksAPI.getRecent({ page, limit: LIMIT });
+      const data = res?.data ?? res;
+      setAttacks(Array.isArray(data?.attacks) ? data.attacks :
+                 Array.isArray(data)           ? data          : []);
+      setTotal(data?.total ?? data?.count ?? 0);
     } catch (err) {
       setError(err.message);
     } finally {
@@ -42,34 +47,32 @@ export default function ThreatsPage() {
   // Real-time: prepend new attack to list
   useEffect(() => {
     const socket = getSocket();
-    socket.on(SOCKET_EVENTS.NEW_ATTACK, (attack) => {
+    const handler = (attack) => {
       setAttacks(prev => [attack, ...prev.slice(0, LIMIT - 1)]);
       setTotal(t => t + 1);
-    });
-    return () => socket.off(SOCKET_EVENTS.NEW_ATTACK);
+    };
+    socket.on(SOCKET_EVENTS.NEW_ATTACK, handler);
+    return () => socket.off(SOCKET_EVENTS.NEW_ATTACK, handler);
   }, []);
 
   async function handleBlock(ip) {
     try {
-      await actionsAPI.blockIP(ip);
+      await actionsAPI.blockIP(ip, { source: 'manual', page: 'threats' });
       setAttacks(prev => prev.map(a => a.sourceIP === ip ? { ...a, status: 'blocked' } : a));
     } catch (err) {
       alert('Block failed: ' + err.message);
     }
   }
 
-  async function handleResolve(id) {
-    try {
-      await attacksAPI.resolve(id);
-      setAttacks(prev => prev.map(a => a._id === id ? { ...a, status: 'resolved' } : a));
-    } catch (err) {
-      alert('Resolve failed: ' + err.message);
-    }
+  // Resolve is local-only (no backend endpoint); marks row as resolved in UI
+  function handleResolve(id) {
+    setAttacks(prev => prev.map(a =>
+      (a._id === id || a.id === id) ? { ...a, status: 'resolved' } : a
+    ));
   }
 
   return (
     <div className="space-y-4">
-
       <div className="flex items-center justify-between">
         <h1 className="font-mono font-bold text-sm tracking-widest uppercase" style={{ color: '#00F5FF' }}>
           Threat Events {total > 0 && <span style={{ color: '#6B7894' }}>({total.toLocaleString()})</span>}
@@ -113,12 +116,16 @@ export default function ThreatsPage() {
                 <td className="px-4 py-3" style={{ color: '#B8C4E0' }}>{a.type ?? a.attackType ?? '—'}</td>
                 <td className="px-4 py-3">
                   <span className="px-2 py-0.5 rounded text-[10px] uppercase tracking-wider"
-                    style={{ color: SEVERITY_COLOR[a.severity?.toLowerCase()] ?? '#B8C4E0',
-                             background: `${SEVERITY_COLOR[a.severity?.toLowerCase()] ?? '#B8C4E0'}18` }}>
+                    style={{
+                      color:      SEVERITY_COLOR[a.severity?.toLowerCase()] ?? '#B8C4E0',
+                      background: `${SEVERITY_COLOR[a.severity?.toLowerCase()] ?? '#B8C4E0'}18`,
+                    }}>
                     {a.severity ?? '—'}
                   </span>
                 </td>
-                <td className="px-4 py-3" style={{ color: a.status === 'blocked' ? '#FF3D71' : a.status === 'resolved' ? '#00FF88' : '#6B7894' }}>
+                <td className="px-4 py-3" style={{
+                  color: a.status === 'blocked' ? '#FF3D71' : a.status === 'resolved' ? '#00FF88' : '#6B7894'
+                }}>
                   {a.status ?? 'active'}
                 </td>
                 <td className="px-4 py-3">
@@ -145,7 +152,6 @@ export default function ThreatsPage() {
         </table>
       </div>
 
-      {/* Pagination */}
       {total > LIMIT && (
         <div className="flex items-center gap-3 justify-end">
           <button onClick={() => setPage(p => Math.max(1, p - 1))} disabled={page === 1}

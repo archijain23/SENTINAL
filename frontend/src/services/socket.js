@@ -1,23 +1,17 @@
 /**
- * SENTINAL — Socket.io Singleton Client  (v2)
+ * SENTINAL — Socket.io Singleton Client  (v3 — fixed export names)
  *
- * All real socket events confirmed from:
- *   backend/src/sockets/
- *
- * Usage:
- *   import { getSocket, SOCKET_EVENTS } from './socket';
- *   const socket = getSocket();
- *   socket.on(SOCKET_EVENTS.NEW_ATTACK, handler);
+ * Exports:
+ *   getSocket()       — returns singleton socket instance
+ *   destroySocket()   — alias: disconnectSocket()
+ *   disconnectSocket()— alias for backward compat
+ *   SOCKET_EVENTS     — all real event names from backend/src/sockets/
  */
 import { io } from 'socket.io-client';
 import { BASE_URL } from './api';
 
 let _socket = null;
 
-/**
- * Returns the singleton Socket.io instance.
- * Creates a new connection only on first call.
- */
 export function getSocket() {
   if (!_socket) {
     _socket = io(BASE_URL, {
@@ -26,53 +20,31 @@ export function getSocket() {
       reconnectionDelay: 2000,
       autoConnect: true,
     });
-
-    _socket.on('connect', () =>
-      console.info(`[SENTINAL] Socket connected: ${_socket.id}`)
-    );
-    _socket.on('disconnect', (reason) =>
-      console.warn(`[SENTINAL] Socket disconnected: ${reason}`)
-    );
-    _socket.on('connect_error', (err) =>
-      console.error(`[SENTINAL] Socket error: ${err.message}`)
-    );
+    _socket.on('connect',       () => console.info(`[SENTINAL] Socket connected: ${_socket.id}`));
+    _socket.on('disconnect',    (r) => console.warn(`[SENTINAL] Socket disconnected: ${r}`));
+    _socket.on('connect_error', (e) => console.error(`[SENTINAL] Socket error: ${e.message}`));
   }
   return _socket;
 }
 
-/**
- * Disconnect and destroy the singleton.
- * Call on app unmount / logout.
- */
 export function destroySocket() {
-  if (_socket) {
-    _socket.disconnect();
-    _socket = null;
-  }
+  if (_socket) { _socket.disconnect(); _socket = null; }
 }
 
-/**
- * Real socket event names emitted by the SENTINAL backend.
- * Keep in sync with backend/src/sockets/
- */
+/** Alias kept for any page that imports disconnectSocket */
+export const disconnectSocket = destroySocket;
+
 export const SOCKET_EVENTS = {
-  // Attack pipeline
-  NEW_ATTACK:       'new_attack',
-  ATTACK_RESOLVED:  'attack_resolved',
-  // Blocklist mutations
-  IP_BLOCKED:       'ip_blocked',
-  IP_UNBLOCKED:     'ip_unblocked',
-  // Live log stream
-  NEW_LOG:          'new_log',
-  // Alert notifications
-  NEW_ALERT:        'new_alert',
-  ALERT_READ:       'alert_read',
-  // Dashboard stats push
-  STATS_UPDATE:     'stats_update',
-  // Service health push
-  SERVICE_STATUS:   'service_status',
-  // Nexus/AI decisions
-  NEXUS_DECISION:   'nexus_decision',
-  ACTION_QUEUED:    'action_queued',
-  ACTION_EXECUTED:  'action_executed',
+  NEW_ATTACK:      'new_attack',
+  ATTACK_RESOLVED: 'attack_resolved',
+  IP_BLOCKED:      'ip_blocked',
+  IP_UNBLOCKED:    'ip_unblocked',
+  NEW_LOG:         'new_log',
+  NEW_ALERT:       'new_alert',
+  ALERT_READ:      'alert_read',
+  STATS_UPDATE:    'stats_update',
+  SERVICE_STATUS:  'service_status',
+  NEXUS_DECISION:  'nexus_decision',
+  ACTION_QUEUED:   'action_queued',
+  ACTION_EXECUTED: 'action_executed',
 };

@@ -1,24 +1,31 @@
 /**
- * NexusPage — Wired to nexusAPI + geminiAPI
+ * NexusPage — Wired to nexusAPI + geminiAPI  (v2 — fixed getStatus call)
  *
- * GET  /api/nexus/status   → model status
- * POST /api/nexus/analyze  → run ML analysis
- * POST /api/gemini/analyze → Gemini AI insight
+ * POST /api/nexus/trigger  → nexusAPI.trigger()
+ * POST /api/gemini/analyze → geminiAPI.analyze()
+ * GET  /api/service-status → healthAPI.serviceStatus() (replaces missing nexusAPI.getStatus)
  */
 import { useState, useEffect } from 'react';
-import { nexusAPI, geminiAPI } from '../services/api';
+import { nexusAPI, geminiAPI, healthAPI } from '../services/api';
 
 export default function NexusPage() {
-  const [status, setStatus]       = useState(null);
+  const [status,        setStatus]        = useState(null);
   const [statusLoading, setStatusLoading] = useState(true);
-  const [input, setInput]         = useState('');
-  const [result, setResult]       = useState(null);
-  const [running, setRunning]     = useState(false);
-  const [error, setError]         = useState(null);
+  const [input,         setInput]         = useState('');
+  const [result,        setResult]        = useState(null);
+  const [running,       setRunning]       = useState(false);
+  const [error,         setError]         = useState(null);
 
+  // Use /api/service-status to show nexus-agent health (getStatus doesn't exist)
   useEffect(() => {
-    nexusAPI.getStatus()
-      .then(res => setStatus(res?.data ?? res))
+    healthAPI.serviceStatus()
+      .then(res => {
+        const services = res?.data?.services ?? res?.services ?? [];
+        const nexus = Array.isArray(services)
+          ? services.find(s => /nexus/i.test(s.name ?? s.service ?? ''))
+          : null;
+        setStatus(nexus ?? { name: 'nexus-agent', status: 'unknown' });
+      })
       .catch(() => setStatus(null))
       .finally(() => setStatusLoading(false));
   }, []);
@@ -28,7 +35,7 @@ export default function NexusPage() {
     setRunning(true); setError(null); setResult(null);
     try {
       const [nexusRes, geminiRes] = await Promise.allSettled([
-        nexusAPI.analyze({ payload: input }),
+        nexusAPI.trigger({ payload: input }),
         geminiAPI.analyze({ prompt: input }),
       ]);
       setResult({
@@ -42,19 +49,20 @@ export default function NexusPage() {
     }
   }
 
+  const nexusOnline = status && (status.status === 'up' || status.status === 'healthy' || status.status === 'online');
+
   return (
     <div className="space-y-5">
       <h1 className="font-mono font-bold text-sm tracking-widest uppercase" style={{ color: '#00F5FF' }}>NEXUS AI Engine</h1>
 
-      {/* Model status badge */}
       <div className="flex items-center gap-3">
         <span className="font-mono text-[10px] uppercase tracking-widest" style={{ color: '#6B7894' }}>Model Status:</span>
         {statusLoading ? (
           <span style={{ color: '#6B7894' }} className="font-mono text-xs">⋯</span>
-        ) : status ? (
+        ) : nexusOnline ? (
           <span className="px-2 py-0.5 rounded font-mono text-[10px] uppercase tracking-wider"
             style={{ background: 'rgba(0,255,136,0.1)', border: '1px solid rgba(0,255,136,0.3)', color: '#00FF88' }}>
-            Online — {status.model ?? 'ready'}
+            Online — {status.name ?? 'nexus-agent'}
           </span>
         ) : (
           <span className="px-2 py-0.5 rounded font-mono text-[10px] uppercase tracking-wider"
@@ -64,7 +72,6 @@ export default function NexusPage() {
         )}
       </div>
 
-      {/* Analysis input */}
       <div className="space-y-3">
         <label className="font-mono text-[10px] uppercase tracking-widest" style={{ color: '#6B7894' }}>Payload / Log to Analyze</label>
         <textarea value={input} onChange={e => setInput(e.target.value)}
@@ -86,17 +93,14 @@ export default function NexusPage() {
         </div>
       )}
 
-      {/* Results */}
       {result && (
         <div className="grid grid-cols-1 xl:grid-cols-2 gap-4">
-          {/* Nexus ML */}
           <div className="p-4 rounded-lg space-y-2" style={{ background: '#0D1117', border: '1px solid rgba(0,245,255,0.08)' }}>
             <p className="font-mono text-[10px] uppercase tracking-widest" style={{ color: '#00F5FF' }}>Nexus ML Result</p>
             <pre className="text-xs font-mono whitespace-pre-wrap break-all" style={{ color: '#B8C4E0', maxHeight: '300px', overflowY: 'auto' }}>
               {result.nexus ? JSON.stringify(result.nexus?.data ?? result.nexus, null, 2) : 'Service unavailable'}
             </pre>
           </div>
-          {/* Gemini AI */}
           <div className="p-4 rounded-lg space-y-2" style={{ background: '#0D1117', border: '1px solid rgba(0,245,255,0.08)' }}>
             <p className="font-mono text-[10px] uppercase tracking-widest" style={{ color: '#00FF88' }}>Gemini AI Insight</p>
             <pre className="text-xs font-mono whitespace-pre-wrap break-all" style={{ color: '#B8C4E0', maxHeight: '300px', overflowY: 'auto' }}>
