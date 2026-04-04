@@ -43,8 +43,13 @@ export const getRecentLogs      = (limit = 100) => http.get(`/api/logs/recent?li
 export const getServiceStatus   = ()            => http.get('/api/service-status').then(unwrap);
 export const getHealth          = ()            => http.get('/api/health').then(unwrap);
 
-/* IP Intelligence */
-export const getIpIntel         = (ip)          => http.get(`/api/intel/${ip}`).then(unwrap);
+/* IP Intelligence
+   FIXED: getIpIntel was calling /api/intel/:ip (non-existent route).
+   Correct backend path is /api/geo/ip/:ip (geoIntel.js router).
+   Added getGeoHeatmap() and getGeoStats() for ExplorePage. */
+export const getIpIntel         = (ip)          => http.get(`/api/geo/ip/${encodeURIComponent(ip)}`).then(unwrap);
+export const getGeoHeatmap      = ()            => http.get('/api/geo/heatmap').then(unwrap);
+export const getGeoStats        = ()            => http.get('/api/geo/stats').then(unwrap);
 export const getGeoThreats      = ()            => http.get('/api/geo/threats').then(unwrap);
 export const getTopSources      = ()            => http.get('/api/geo/top-sources').then(unwrap);
 
@@ -108,8 +113,7 @@ export const geminiMutate = (payload, attackType = 'unknown') =>
 export const BASE_URL = BASE;
 
 /* ─────────────────────────────────────────────────────────────
-   NAMESPACE EXPORTS  (used by DashboardPage, ThreatsPage, etc.)
-   Each object groups related flat functions — no duplicate logic.
+   NAMESPACE EXPORTS
 ───────────────────────────────────────────────────────────── */
 
 export const statsAPI = {
@@ -140,6 +144,8 @@ export const healthAPI = {
 
 export const ipAPI = {
   getIntel:      getIpIntel,
+  getHeatmap:    getGeoHeatmap,
+  getStats:      getGeoStats,
   getGeoThreats: getGeoThreats,
   getTopSources: getTopSources,
 };
