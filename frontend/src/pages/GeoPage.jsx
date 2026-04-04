@@ -1,22 +1,23 @@
 /**
  * GeoPage — Live World Threat Map
  *
- * Map: Three.js globe via @react-three/fiber + @react-three/drei (already installed)
- * No new npm installs required.
+ * Map: react-leaflet v4 + leaflet v1.9 — 2D flat world map
+ * Tile layer: CartoDB Dark Matter (free, no API key required)
  *
  * Data flow:
  *   1. GET /api/geo/threats  — all unique IPs with counts + geo (MongoDB-direct)
  *   2. socket 'attack:new'   — real-time updates pushed by gateway
  *
- * Socket fix: uses getSocket() (singleton re-use) instead of connectSocket()
- * to avoid triggering a disconnect/reconnect on every page mount.
+ * All existing functionality preserved:
+ *   - KPI cards, attack feed table, detail panel
+ *   - Socket live updates
+ *   - normalise() data contract
  */
-import { useState, useEffect, useCallback, useRef, Suspense } from 'react';
-import { Canvas, useFrame, useThree } from '@react-three/fiber';
-import { OrbitControls, Sphere }      from '@react-three/drei';
-import * as THREE from 'three';
-import { ipAPI }                        from '../services/api';
-import { getSocket, SOCKET_EVENTS }     from '../services/socket';
+import 'leaflet/dist/leaflet.css';
+import { useState, useEffect, useCallback } from 'react';
+import { MapContainer, TileLayer, CircleMarker, Tooltip } from 'react-leaflet';
+import { ipAPI }                      from '../services/api';
+import { getSocket, SOCKET_EVENTS }   from '../services/socket';
 
 /* ── Design tokens ─────────────────────────────────────────────────────────── */
 const T = {
@@ -34,14 +35,14 @@ const T = {
 };
 
 const SEV = {
-  CRITICAL: { color: '#FF3D71', hex: 0xFF3D71, bg: 'rgba(255,61,113,0.12)',  border: 'rgba(255,61,113,0.30)' },
-  HIGH:     { color: '#FF9500', hex: 0xFF9500, bg: 'rgba(255,149,0,0.12)',   border: 'rgba(255,149,0,0.30)'  },
-  MEDIUM:   { color: '#FFD700', hex: 0xFFD700, bg: 'rgba(255,215,0,0.12)',   border: 'rgba(255,215,0,0.30)'  },
-  LOW:      { color: '#00FF88', hex: 0x00FF88, bg: 'rgba(0,255,136,0.10)',   border: 'rgba(0,255,136,0.25)'  },
+  CRITICAL: { color: '#FF3D71', bg: 'rgba(255,61,113,0.12)',  border: 'rgba(255,61,113,0.30)' },
+  HIGH:     { color: '#FF9500', bg: 'rgba(255,149,0,0.12)',   border: 'rgba(255,149,0,0.30)'  },
+  MEDIUM:   { color: '#FFD700', bg: 'rgba(255,215,0,0.12)',   border: 'rgba(255,215,0,0.30)'  },
+  LOW:      { color: '#00FF88', bg: 'rgba(0,255,136,0.10)',   border: 'rgba(0,255,136,0.25)'  },
 };
 const sevStyle = s => SEV[(s || '').toUpperCase()] ?? SEV.LOW;
 
-/* ── Normalise ── handles both /threats shape and socket push ─────────────── */
+/* ── Normalise — handles both /threats shape and socket push ──────────────── */
 function normalise(raw) {
   const geo = raw.geoIntel ?? {};
   return {
@@ -61,163 +62,9 @@ function normalise(raw) {
   };
 }
 
-/* ── lat/lng → 3D cartesian on unit sphere ─────────────────────────────────── */
-function latLngToVec3(lat, lng, r = 1.01) {
-  const phi   = (90 - lat)  * (Math.PI / 180);
-  const theta = (lng + 180) * (Math.PI / 180);
-  return new THREE.Vector3(
-    -(r * Math.sin(phi) * Math.cos(theta)),
-      r * Math.cos(phi),
-      r * Math.sin(phi) * Math.sin(theta),
-  );
-}
-
-/* ── Single attack dot on the globe ────────────────────────────────────────── */
-function AttackDot({ attack, onHover, onClick }) {
-  const meshRef  = useRef();
-  const s        = sevStyle(attack.severity);
-  const pos      = latLngToVec3(attack.lat, attack.lng);
-  const baseR    = 0.008 + Math.min(Math.log2(attack.count + 1) * 0.003, 0.022);
-  const [hovered, setHovered] = useState(false);
-
-  useFrame(({ clock }) => {
-    if (!meshRef.current) return;
-    const pulse = 1 + 0.25 * Math.sin(clock.elapsedTime * 3 + attack.lat);
-    meshRef.current.scale.setScalar(hovered ? 1.8 : pulse);
-  });
-
-  return (
-    <mesh
-      ref={meshRef}
-      position={pos}
-      onPointerOver={e => { e.stopPropagation(); setHovered(true);  onHover(attack); }}
-      onPointerOut={e  => { e.stopPropagation(); setHovered(false); onHover(null);   }}
-      onClick={e        => { e.stopPropagation(); onClick(attack); }}
-    >
-      <sphereGeometry args={[baseR, 8, 8]} />
-      <meshBasicMaterial color={s.hex} transparent opacity={hovered ? 1 : 0.85} />
-    </mesh>
-  );
-}
-
-/* ── Glow ring around hovered dot ─────────────────────────────────────────── */
-function GlowRing({ attack }) {
-  const ringRef = useRef();
-  const s       = sevStyle(attack.severity);
-  const pos     = latLngToVec3(attack.lat, attack.lng, 1.012);
-  const normal  = pos.clone().normalize();
-  const quat    = new THREE.Quaternion().setFromUnitVectors(
-    new THREE.Vector3(0, 0, 1), normal
-  );
-
-  useFrame(({ clock }) => {
-    if (ringRef.current) ringRef.current.rotation.z = clock.elapsedTime * 1.5;
-  });
-
-  return (
-    <mesh ref={ringRef} position={pos} quaternion={quat}>
-      <ringGeometry args={[0.022, 0.030, 32]} />
-      <meshBasicMaterial color={s.hex} transparent opacity={0.5} side={THREE.DoubleSide} />
-    </mesh>
-  );
-}
-
-/* ── Animated ping line radiating outward from dot ─────────────────────────── */
-function PingLine({ attack }) {
-  const lineRef = useRef();
-  const s       = sevStyle(attack.severity);
-  const start   = latLngToVec3(attack.lat, attack.lng, 1.01);
-  const end     = latLngToVec3(attack.lat, attack.lng, 1.06);
-  const geo     = new THREE.BufferGeometry().setFromPoints([start, end]);
-
-  useFrame(({ clock }) => {
-    if (lineRef.current) {
-      lineRef.current.material.opacity =
-        0.3 + 0.4 * Math.abs(Math.sin(clock.elapsedTime * 4 + attack.lng));
-    }
-  });
-
-  return (
-    <line ref={lineRef} geometry={geo}>
-      <lineBasicMaterial color={s.hex} transparent opacity={0.6} />
-    </line>
-  );
-}
-
-/* ── Globe scene ───────────────────────────────────────────────────────────── */
-function GlobeScene({ attacks, onHover, onSelect, hovered }) {
-  const { camera } = useThree();
-
-  useEffect(() => { camera.position.set(0, 0, 2.6); }, [camera]);
-
-  const dots = attacks.filter(a => a.lat != null && a.lng != null);
-
-  // Latitude / longitude grid lines
-  const gridLines = [];
-  for (let lat = -80; lat <= 80; lat += 20) {
-    const pts = [];
-    for (let lng = 0; lng <= 360; lng += 3) pts.push(latLngToVec3(lat, lng - 180, 1.001));
-    const g = new THREE.BufferGeometry().setFromPoints(pts);
-    gridLines.push(<line key={`lat${lat}`} geometry={g}><lineBasicMaterial color={0x1e3a5a} transparent opacity={0.7} /></line>);
-  }
-  for (let lng = 0; lng < 360; lng += 30) {
-    const pts = [];
-    for (let lat = -90; lat <= 90; lat += 3) pts.push(latLngToVec3(lat, lng - 180, 1.001));
-    const g = new THREE.BufferGeometry().setFromPoints(pts);
-    gridLines.push(<line key={`lng${lng}`} geometry={g}><lineBasicMaterial color={0x1e3a5a} transparent opacity={0.7} /></line>);
-  }
-
-  return (
-    <>
-      {/* Stronger ambient so the dark sphere surface is never pure black */}
-      <ambientLight intensity={0.8} />
-      {/* Main cyan key light — boosted for specular highlight on the sphere */}
-      <pointLight position={[4, 4, 4]}    intensity={2.0} color={0x00f5ff} />
-      {/* Red-pink fill from behind */}
-      <pointLight position={[-4, -2, -4]} intensity={0.6} color={0xff3d71} />
-      {/* Soft warm back-fill so the night side stays slightly visible */}
-      <pointLight position={[0, -4, -2]}  intensity={0.3} color={0x223355} />
-
-      {/* Globe core — meshPhongMaterial responds well to low-intensity lights;
-          emissive ensures the unlit side is never indistinguishable from the bg */}
-      <Sphere args={[1, 64, 64]}>
-        <meshPhongMaterial
-          color={0x0a1628}
-          emissive={0x071020}
-          emissiveIntensity={1}
-          shininess={18}
-          transparent
-          opacity={0.97}
-        />
-      </Sphere>
-
-      {/* Atmosphere glow — stronger edge halo so the sphere silhouette reads clearly */}
-      <Sphere args={[1.04, 32, 32]}>
-        <meshBasicMaterial color={0x004466} transparent opacity={0.18} side={THREE.BackSide} />
-      </Sphere>
-
-      {gridLines}
-
-      {dots.map(a => (
-        <group key={a.ip}>
-          <AttackDot attack={a} onHover={onHover} onClick={onSelect} />
-          <PingLine  attack={a} />
-          {hovered?.ip === a.ip && <GlowRing attack={a} />}
-        </group>
-      ))}
-
-      <OrbitControls
-        enablePan={false}
-        enableZoom={true}
-        minDistance={1.4}
-        maxDistance={4}
-        autoRotate={true}
-        autoRotateSpeed={0.4}
-        dampingFactor={0.08}
-        enableDamping={true}
-      />
-    </>
-  );
+/* ── Radius scales with event count (min 5 px, max 18 px) ─────────────────── */
+function dotRadius(count) {
+  return Math.min(5 + Math.log2(count + 1) * 2.2, 18);
 }
 
 /* ── Shared UI components ─────────────────────────────────────────────────── */
@@ -225,25 +72,31 @@ function SevBadge({ sev }) {
   const s = sevStyle(sev);
   return (
     <span style={{
-      fontFamily:'monospace', fontSize:'10px', fontWeight:700,
-      letterSpacing:'0.08em', textTransform:'uppercase',
-      padding:'2px 7px', borderRadius:'4px',
-      color:s.color, background:s.bg, border:`1px solid ${s.border}`,
+      fontFamily: 'monospace', fontSize: '10px', fontWeight: 700,
+      letterSpacing: '0.08em', textTransform: 'uppercase',
+      padding: '2px 7px', borderRadius: '4px',
+      color: s.color, background: s.bg, border: `1px solid ${s.border}`,
     }}>{sev}</span>
   );
 }
 
 function KpiCard({ label, value, color, loading }) {
   return (
-    <div style={{ background:T.surface, border:`1px solid ${T.border}`, borderRadius:'8px',
-      padding:'14px 18px', minWidth:0 }}>
-      <div style={{ fontFamily:'monospace', fontWeight:700, fontSize:'22px', color,
-        lineHeight:1, fontVariantNumeric:'tabular-nums',
-        filter:loading?'blur(5px)':'none', transition:'filter 0.3s' }}>
+    <div style={{
+      background: T.surface, border: `1px solid ${T.border}`,
+      borderRadius: '8px', padding: '14px 18px', minWidth: 0,
+    }}>
+      <div style={{
+        fontFamily: 'monospace', fontWeight: 700, fontSize: '22px', color,
+        lineHeight: 1, fontVariantNumeric: 'tabular-nums',
+        filter: loading ? 'blur(5px)' : 'none', transition: 'filter 0.3s',
+      }}>
         {loading ? '000' : value}
       </div>
-      <div style={{ fontFamily:'monospace', fontSize:'10px', color:T.muted, marginTop:'5px',
-        textTransform:'uppercase', letterSpacing:'0.10em' }}>{label}</div>
+      <div style={{
+        fontFamily: 'monospace', fontSize: '10px', color: T.muted,
+        marginTop: '5px', textTransform: 'uppercase', letterSpacing: '0.10em',
+      }}>{label}</div>
     </div>
   );
 }
@@ -256,10 +109,9 @@ export default function GeoPage() {
   const [loading,  setLoading]  = useState(true);
   const [error,    setError]    = useState(null);
   const [selected, setSelected] = useState(null);
-  const [hovered,  setHovered]  = useState(null);
   const [live,     setLive]     = useState(false);
 
-  /* ─ Load ─────────────────────────────────────────────────────────────── */
+  /* ── Load from REST ────────────────────────────────────────────────────── */
   const load = useCallback(async () => {
     setLoading(true); setError(null);
     try {
@@ -275,10 +127,9 @@ export default function GeoPage() {
 
   useEffect(() => { load(); }, [load]);
 
-  /* ─ Real-time socket ─────────────────────────────────────────────────── */
+  /* ── Real-time socket ──────────────────────────────────────────────────── */
   useEffect(() => {
     const socket  = getSocket();
-
     const handler = event => {
       setLive(true);
       const item = normalise(event);
@@ -301,10 +152,8 @@ export default function GeoPage() {
         return [item, ...prev].slice(0, 200);
       });
     };
-
     socket.on(SOCKET_EVENTS.NEW_ATTACK, handler);
     socket.on('geo:event',              handler);
-
     return () => {
       socket.off(SOCKET_EVENTS.NEW_ATTACK, handler);
       socket.off('geo:event',              handler);
@@ -313,7 +162,7 @@ export default function GeoPage() {
 
   const handleSelect = useCallback(a => setSelected(p => p?.id === a.id ? null : a), []);
 
-  /* ─ Derived stats ────────────────────────────────────────────────────── */
+  /* ── Derived stats ─────────────────────────────────────────────────────── */
   const stats = {
     total:     attacks.reduce((s, a) => s + a.count, 0),
     countries: new Set(attacks.map(a => a.country).filter(c => c !== 'Unknown')).size,
@@ -321,150 +170,231 @@ export default function GeoPage() {
     high:      attacks.filter(a => a.severity === 'HIGH').length,
     tor:       attacks.filter(a => a.isTor || a.isProxy).length,
   };
-  const mapped = attacks.filter(a => a.lat != null).length;
+  const mapped = attacks.filter(a => a.lat != null && a.lng != null);
 
   return (
-    <div style={{ maxWidth:'1200px', fontFamily:'monospace' }}>
+    <div style={{ maxWidth: '1200px', fontFamily: 'monospace' }}>
 
-      {/* ── Page header ── */}
-      <div style={{ marginBottom:'20px' }}>
-        <div style={{ display:'flex', alignItems:'center', gap:'10px', marginBottom:'4px' }}>
-          <h1 style={{ fontFamily:'monospace', fontWeight:700, fontSize:'13px',
-            letterSpacing:'0.18em', textTransform:'uppercase', color:T.cyan, margin:0 }}>
-            Geo Threat Map
-          </h1>
+      {/* ── Page header ────────────────────────────────────────────────────── */}
+      <div style={{ marginBottom: '20px' }}>
+        <div style={{ display: 'flex', alignItems: 'center', gap: '10px', marginBottom: '4px' }}>
+          <h1 style={{
+            fontFamily: 'monospace', fontWeight: 700, fontSize: '13px',
+            letterSpacing: '0.18em', textTransform: 'uppercase',
+            color: T.cyan, margin: 0,
+          }}>Geo Threat Map</h1>
           {live && (
             <span style={{
-              fontFamily:'monospace', fontSize:'9px', fontWeight:700,
-              letterSpacing:'0.10em', textTransform:'uppercase',
-              padding:'2px 8px', borderRadius:'4px',
-              color:'#00FF88', background:'rgba(0,255,136,0.08)',
-              border:'1px solid rgba(0,255,136,0.2)',
+              fontFamily: 'monospace', fontSize: '9px', fontWeight: 700,
+              letterSpacing: '0.10em', textTransform: 'uppercase',
+              padding: '2px 8px', borderRadius: '4px',
+              color: '#00FF88', background: 'rgba(0,255,136,0.08)',
+              border: '1px solid rgba(0,255,136,0.2)',
             }}>LIVE</span>
           )}
         </div>
-        <p style={{ margin:0, fontSize:'11px', color:T.muted }}>
-          Live attack origins · IP geolocation · 3D globe overlay
+        <p style={{ margin: 0, fontSize: '11px', color: T.muted }}>
+          Live attack origins · IP geolocation · 2D world map
         </p>
       </div>
 
-      {/* ── Error banner ── */}
+      {/* ── Error banner ───────────────────────────────────────────────────── */}
       {error && (
-        <div style={{ padding:'10px 14px', borderRadius:'7px', marginBottom:'14px',
-          background:'rgba(255,61,113,0.08)', border:'1px solid rgba(255,61,113,0.25)',
-          fontFamily:'monospace', fontSize:'11px', color:T.red }}>⚠ {error}</div>
+        <div style={{
+          padding: '10px 14px', borderRadius: '7px', marginBottom: '14px',
+          background: 'rgba(255,61,113,0.08)', border: '1px solid rgba(255,61,113,0.25)',
+          fontFamily: 'monospace', fontSize: '11px', color: T.red,
+        }}>⚠ {error}</div>
       )}
 
-      {/* ── KPI row ── */}
-      <div style={{ display:'grid', gridTemplateColumns:'repeat(5,1fr)', gap:'10px', marginBottom:'16px' }}>
+      {/* ── KPI row ────────────────────────────────────────────────────────── */}
+      <div style={{
+        display: 'grid', gridTemplateColumns: 'repeat(5,1fr)',
+        gap: '10px', marginBottom: '16px',
+      }}>
         <KpiCard label="Total Events"  value={stats.total}     color={T.cyan}   loading={loading} />
-        <KpiCard label="Countries"     value={stats.countries} color='#a78bfa'  loading={loading} />
+        <KpiCard label="Countries"     value={stats.countries} color="#a78bfa"  loading={loading} />
         <KpiCard label="Critical"      value={stats.critical}  color={T.red}    loading={loading} />
         <KpiCard label="High"          value={stats.high}      color={T.orange} loading={loading} />
         <KpiCard label="TOR / Proxy"   value={stats.tor}       color={T.muted}  loading={loading} />
       </div>
 
-      {/* ── 3D Globe ── */}
-      <div style={{ background:T.surface, border:`1px solid ${T.border}`, borderRadius:'10px',
-        overflow:'hidden', marginBottom:'16px', position:'relative' }}>
-
-        {/* map header */}
-        <div style={{ display:'flex', alignItems:'center', justifyContent:'space-between',
-          padding:'10px 16px', borderBottom:`1px solid ${T.borderD}` }}>
-          <span style={{ fontSize:'11px', color:T.cyan, textTransform:'uppercase',
-            letterSpacing:'0.12em' }}>Live Threat Globe</span>
-          <div style={{ display:'flex', gap:'14px', alignItems:'center' }}>
+      {/* ── 2D Leaflet Map ─────────────────────────────────────────────────── */}
+      <div style={{
+        background: T.surface, border: `1px solid ${T.border}`,
+        borderRadius: '10px', overflow: 'hidden', marginBottom: '16px',
+      }}>
+        {/* Map header */}
+        <div style={{
+          display: 'flex', alignItems: 'center', justifyContent: 'space-between',
+          padding: '10px 16px', borderBottom: `1px solid ${T.borderD}`,
+        }}>
+          <span style={{
+            fontSize: '11px', color: T.cyan,
+            textTransform: 'uppercase', letterSpacing: '0.12em',
+          }}>Live Threat Map</span>
+          <div style={{ display: 'flex', gap: '14px', alignItems: 'center' }}>
             {Object.entries(SEV).map(([k, v]) => (
-              <span key={k} style={{ fontSize:'10px', color:v.color,
-                display:'flex', alignItems:'center', gap:'4px' }}>
-                <span style={{ width:'7px', height:'7px', borderRadius:'50%',
-                  background:v.color, display:'inline-block' }} />{k}
+              <span key={k} style={{
+                fontSize: '10px', color: v.color,
+                display: 'flex', alignItems: 'center', gap: '4px',
+              }}>
+                <span style={{
+                  width: '7px', height: '7px', borderRadius: '50%',
+                  background: v.color, display: 'inline-block',
+                }} />{k}
               </span>
             ))}
-            <span style={{ fontSize:'10px', color:T.muted }}>
-              {mapped} dot{mapped !== 1 ? 's' : ''}
+            <span style={{ fontSize: '10px', color: T.muted }}>
+              {mapped.length} dot{mapped.length !== 1 ? 's' : ''}
             </span>
           </div>
         </div>
 
-        {/* canvas */}
-        <div style={{ height:'460px', width:'100%', background:'#0D1117', cursor:'grab' }}>
-          <Canvas
-            camera={{ position: [0, 0, 2.6], fov: 45 }}
-            gl={{ antialias: true, alpha: false }}
-            style={{ background:'#0D1117' }}
-          >
-            <Suspense fallback={null}>
-              <GlobeScene
-                attacks={attacks}
-                onHover={setHovered}
-                onSelect={handleSelect}
-                hovered={hovered}
+        {/* Leaflet map canvas */}
+        <div style={{ height: '460px', width: '100%' }}>
+          {!loading && (
+            <MapContainer
+              center={[20, 0]}
+              zoom={2}
+              minZoom={2}
+              maxZoom={10}
+              scrollWheelZoom={true}
+              style={{ height: '100%', width: '100%', background: '#0D1117' }}
+              maxBounds={[[-90, -180], [90, 180]]}
+              maxBoundsViscosity={1.0}
+              worldCopyJump={false}
+            >
+              {/* CartoDB Dark Matter — free, no API key, matches SENTINAL dark theme */}
+              <TileLayer
+                url="https://{s}.basemaps.cartocdn.com/dark_all/{z}/{x}/{y}{r}.png"
+                attribution='&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a> contributors &copy; <a href="https://carto.com/attributions">CARTO</a>'
+                subdomains="abcd"
+                maxZoom={19}
               />
-            </Suspense>
-          </Canvas>
+
+              {/* Attack markers */}
+              {mapped.map(a => {
+                const s = sevStyle(a.severity);
+                return (
+                  <CircleMarker
+                    key={a.id}
+                    center={[a.lat, a.lng]}
+                    radius={dotRadius(a.count)}
+                    pathOptions={{
+                      color:       s.color,
+                      fillColor:   s.color,
+                      fillOpacity: selected?.id === a.id ? 1 : 0.75,
+                      weight:      selected?.id === a.id ? 2 : 1,
+                      opacity:     1,
+                    }}
+                    eventHandlers={{
+                      click: () => handleSelect(a),
+                    }}
+                  >
+                    <Tooltip
+                      direction="top"
+                      offset={[0, -6]}
+                      opacity={1}
+                      className="sentinal-tooltip"
+                    >
+                      <div style={{
+                        fontFamily: 'monospace', fontSize: '11px',
+                        background: 'rgba(13,17,23,0.97)',
+                        border: `1px solid ${s.border}`,
+                        borderRadius: '6px', padding: '8px 12px',
+                        color: T.text, minWidth: '160px',
+                      }}>
+                        <div style={{ fontWeight: 700, color: s.color, marginBottom: '3px' }}>
+                          {a.ip}
+                        </div>
+                        <div>{a.city ? `${a.city}, ` : ''}{a.country}</div>
+                        <div style={{ color: T.muted, marginTop: '2px' }}>
+                          {a.type} · {a.severity} · {a.count} event{a.count !== 1 ? 's' : ''}
+                        </div>
+                        {(a.isTor || a.isProxy) && (
+                          <div style={{ marginTop: '3px', display: 'flex', gap: '6px' }}>
+                            {a.isTor   && <span style={{ color: T.red,    fontSize: '9px', fontWeight: 700 }}>TOR EXIT</span>}
+                            {a.isProxy && <span style={{ color: T.orange, fontSize: '9px', fontWeight: 700 }}>OPEN PROXY</span>}
+                          </div>
+                        )}
+                      </div>
+                    </Tooltip>
+                  </CircleMarker>
+                );
+              })}
+            </MapContainer>
+          )}
+
+          {/* Loading skeleton while data loads */}
+          {loading && (
+            <div style={{
+              height: '100%', display: 'flex',
+              alignItems: 'center', justifyContent: 'center',
+              background: '#0D1117',
+            }}>
+              <span style={{ fontFamily: 'monospace', fontSize: '11px', color: T.muted }}>
+                Loading threat data…
+              </span>
+            </div>
+          )}
+
+          {/* Empty state */}
+          {!loading && mapped.length === 0 && (
+            <div style={{
+              position: 'absolute', bottom: '16px', left: '50%',
+              transform: 'translateX(-50%)', zIndex: 1000,
+              fontFamily: 'monospace', fontSize: '11px', color: T.muted,
+              background: 'rgba(13,17,23,0.85)', padding: '6px 14px',
+              borderRadius: '6px', pointerEvents: 'none', whiteSpace: 'nowrap',
+            }}>
+              No geo-located events — fire an attack on /simulate to populate the map
+            </div>
+          )}
         </div>
-
-        {/* hover tooltip */}
-        {hovered && (
-          <div style={{ position:'absolute', bottom:'16px', left:'16px', pointerEvents:'none',
-            background:'rgba(13,17,23,0.92)', border:`1px solid ${sevStyle(hovered.severity).border}`,
-            borderRadius:'8px', padding:'10px 14px', fontFamily:'monospace', fontSize:'11px' }}>
-            <div style={{ fontWeight:700, color:sevStyle(hovered.severity).color,
-              marginBottom:'4px' }}>{hovered.ip}</div>
-            <div style={{ color:T.text }}>
-              {hovered.city ? `${hovered.city}, ` : ''}{hovered.country}
-            </div>
-            <div style={{ color:T.muted, marginTop:'3px' }}>
-              {hovered.type} · {hovered.severity} · {hovered.count} event{hovered.count !== 1 ? 's' : ''}
-            </div>
-            {(hovered.isTor || hovered.isProxy) && (
-              <div style={{ marginTop:'4px', display:'flex', gap:'6px' }}>
-                {hovered.isTor   && <span style={{ color:T.red,   fontSize:'9px',fontWeight:700 }}>TOR EXIT</span>}
-                {hovered.isProxy && <span style={{ color:T.orange,fontSize:'9px',fontWeight:700 }}>OPEN PROXY</span>}
-              </div>
-            )}
-          </div>
-        )}
-
-        {/* empty hint */}
-        {mapped === 0 && !loading && (
-          <div style={{ position:'absolute', bottom:'16px', left:'50%',
-            transform:'translateX(-50%)', fontFamily:'monospace', fontSize:'11px',
-            color:T.muted, background:'rgba(13,17,23,0.85)', padding:'6px 14px',
-            borderRadius:'6px', pointerEvents:'none', whiteSpace:'nowrap' }}>
-            No geo-located events — fire an attack on /simulate to populate the globe
-          </div>
-        )}
       </div>
 
-      {/* ── Attack origins feed ── */}
-      <div style={{ background:T.surface, border:`1px solid ${T.border}`,
-        borderRadius:'10px', overflow:'hidden', marginBottom:'14px' }}>
-        <div style={{ display:'flex', alignItems:'center', justifyContent:'space-between',
-          padding:'10px 16px', borderBottom:`1px solid ${T.borderD}` }}>
-          <span style={{ fontSize:'11px', color:T.cyan, textTransform:'uppercase',
-            letterSpacing:'0.12em' }}>Attack Origins Feed</span>
-          <div style={{ display:'flex', gap:'10px', alignItems:'center' }}>
-            <span style={{ fontSize:'10px', color:T.muted }}>
+      {/* ── Attack origins feed ────────────────────────────────────────────── */}
+      <div style={{
+        background: T.surface, border: `1px solid ${T.border}`,
+        borderRadius: '10px', overflow: 'hidden', marginBottom: '14px',
+      }}>
+        <div style={{
+          display: 'flex', alignItems: 'center', justifyContent: 'space-between',
+          padding: '10px 16px', borderBottom: `1px solid ${T.borderD}`,
+        }}>
+          <span style={{
+            fontSize: '11px', color: T.cyan,
+            textTransform: 'uppercase', letterSpacing: '0.12em',
+          }}>Attack Origins Feed</span>
+          <div style={{ display: 'flex', gap: '10px', alignItems: 'center' }}>
+            <span style={{ fontSize: '10px', color: T.muted }}>
               {loading ? 'Loading…' : `${attacks.length} unique source${attacks.length !== 1 ? 's' : ''}`}
             </span>
-            <button onClick={load} disabled={loading}
-              style={{ fontFamily:'monospace', fontSize:'10px', color:T.cyan,
-                background:'rgba(0,245,255,0.06)', border:`1px solid ${T.border}`,
-                borderRadius:'5px', padding:'3px 10px', cursor:'pointer',
-                opacity: loading ? 0.4 : 1 }}>↺ Refresh</button>
+            <button
+              onClick={load}
+              disabled={loading}
+              style={{
+                fontFamily: 'monospace', fontSize: '10px', color: T.cyan,
+                background: 'rgba(0,245,255,0.06)', border: `1px solid ${T.border}`,
+                borderRadius: '5px', padding: '3px 10px', cursor: 'pointer',
+                opacity: loading ? 0.4 : 1,
+              }}
+            >↺ Refresh</button>
           </div>
         </div>
 
-        <div style={{ overflowX:'auto', overflowY:'auto', maxHeight:'340px' }}>
-          <table style={{ width:'100%', borderCollapse:'collapse', fontSize:'12px' }}>
-            <thead style={{ position:'sticky', top:0, background:T.surface, zIndex:1 }}>
+        <div style={{ overflowX: 'auto', overflowY: 'auto', maxHeight: '340px' }}>
+          <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: '12px' }}>
+            <thead style={{ position: 'sticky', top: 0, background: T.surface, zIndex: 1 }}>
               <tr>
-                {['IP Address','Location','Attack Type','Severity','Events','Flags'].map(h => (
-                  <th key={h} style={{ padding:'8px 14px', textAlign:'left', color:T.muted,
-                    fontWeight:500, whiteSpace:'nowrap', borderBottom:`1px solid ${T.borderD}`,
-                    fontSize:'10px', textTransform:'uppercase', letterSpacing:'0.08em' }}>{h}</th>
+                {['IP Address', 'Location', 'Attack Type', 'Severity', 'Events', 'Flags'].map(h => (
+                  <th key={h} style={{
+                    padding: '8px 14px', textAlign: 'left', color: T.muted,
+                    fontWeight: 500, whiteSpace: 'nowrap',
+                    borderBottom: `1px solid ${T.borderD}`,
+                    fontSize: '10px', textTransform: 'uppercase', letterSpacing: '0.08em',
+                  }}>{h}</th>
                 ))}
               </tr>
             </thead>
@@ -472,44 +402,54 @@ export default function GeoPage() {
               {loading ? (
                 [...Array(8)].map((_, i) => (
                   <tr key={i}>
-                    {[140,120,100,70,40,60].map((w, j) => (
-                      <td key={j} style={{ padding:'10px 14px' }}>
-                        <div style={{ height:'11px', borderRadius:'3px', width:`${w}px`,
-                          background:'rgba(0,245,255,0.05)',
-                          animation:'shimmer 1.5s ease-in-out infinite' }} />
+                    {[140, 120, 100, 70, 40, 60].map((w, j) => (
+                      <td key={j} style={{ padding: '10px 14px' }}>
+                        <div style={{
+                          height: '11px', borderRadius: '3px', width: `${w}px`,
+                          background: 'rgba(0,245,255,0.05)',
+                          animation: 'shimmer 1.5s ease-in-out infinite',
+                        }} />
                       </td>
                     ))}
                   </tr>
                 ))
               ) : attacks.length === 0 ? (
                 <tr>
-                  <td colSpan={6} style={{ padding:'36px', textAlign:'center', color:T.muted }}>
+                  <td colSpan={6} style={{ padding: '36px', textAlign: 'center', color: T.muted }}>
                     No attacks recorded yet — fire a simulation on /simulate
                   </td>
                 </tr>
               ) : attacks.map(a => (
-                <tr key={a.id}
+                <tr
+                  key={a.id}
                   onClick={() => handleSelect(a)}
                   style={{
-                    borderTop:`1px solid ${T.borderD}`,
-                    cursor:'pointer',
+                    borderTop: `1px solid ${T.borderD}`,
+                    cursor: 'pointer',
                     background: selected?.id === a.id ? sevStyle(a.severity).bg : 'transparent',
-                    transition:'background 120ms',
+                    transition: 'background 120ms',
                   }}
-                  onMouseEnter={e => { if (selected?.id !== a.id) e.currentTarget.style.background='rgba(0,245,255,0.02)'; }}
-                  onMouseLeave={e => { if (selected?.id !== a.id) e.currentTarget.style.background='transparent'; }}
+                  onMouseEnter={e => {
+                    if (selected?.id !== a.id) e.currentTarget.style.background = 'rgba(0,245,255,0.02)';
+                  }}
+                  onMouseLeave={e => {
+                    if (selected?.id !== a.id) e.currentTarget.style.background = 'transparent';
+                  }}
                 >
-                  <td style={{ padding:'9px 14px', color:T.cyan }}>{a.ip}</td>
-                  <td style={{ padding:'9px 14px', color:T.text }}>
+                  <td style={{ padding: '9px 14px', color: T.cyan }}>{a.ip}</td>
+                  <td style={{ padding: '9px 14px', color: T.text }}>
                     {a.city ? `${a.city}, ` : ''}{a.country}
                   </td>
-                  <td style={{ padding:'9px 14px', color:T.muted }}>{a.type}</td>
-                  <td style={{ padding:'9px 14px' }}><SevBadge sev={a.severity} /></td>
-                  <td style={{ padding:'9px 14px', color:T.text, fontVariantNumeric:'tabular-nums', fontWeight:700 }}>{a.count}</td>
-                  <td style={{ padding:'9px 14px', fontSize:'10px', display:'flex', gap:'4px', alignItems:'center' }}>
-                    {a.isTor    && <span style={{ color:T.red,    fontWeight:700 }}>TOR</span>}
-                    {a.isProxy  && <span style={{ color:T.orange, fontWeight:700 }}>PROXY</span>}
-                    {a.lat != null && <span style={{ color:T.green }} title="Geo-located">●</span>}
+                  <td style={{ padding: '9px 14px', color: T.muted }}>{a.type}</td>
+                  <td style={{ padding: '9px 14px' }}><SevBadge sev={a.severity} /></td>
+                  <td style={{
+                    padding: '9px 14px', color: T.text,
+                    fontVariantNumeric: 'tabular-nums', fontWeight: 700,
+                  }}>{a.count}</td>
+                  <td style={{ padding: '9px 14px', fontSize: '10px', display: 'flex', gap: '4px', alignItems: 'center' }}>
+                    {a.isTor   && <span style={{ color: T.red,    fontWeight: 700 }}>TOR</span>}
+                    {a.isProxy && <span style={{ color: T.orange, fontWeight: 700 }}>PROXY</span>}
+                    {a.lat != null && <span style={{ color: T.green }} title="Geo-located">●</span>}
                   </td>
                 </tr>
               ))}
@@ -518,52 +458,99 @@ export default function GeoPage() {
         </div>
       </div>
 
-      {/* ── Selected IP detail panel ── */}
+      {/* ── Selected IP detail panel ────────────────────────────────────────── */}
       {selected && (
         <div style={{
-          background:T.surface,
-          border:`1px solid ${sevStyle(selected.severity).border}`,
-          borderRadius:'10px', padding:'16px 20px',
-          animation:'slideUp 160ms ease',
+          background: T.surface,
+          border: `1px solid ${sevStyle(selected.severity).border}`,
+          borderRadius: '10px', padding: '16px 20px',
+          animation: 'slideUp 160ms ease',
         }}>
-          <div style={{ display:'flex', justifyContent:'space-between',
-            alignItems:'flex-start', marginBottom:'14px' }}>
+          <div style={{
+            display: 'flex', justifyContent: 'space-between',
+            alignItems: 'flex-start', marginBottom: '14px',
+          }}>
             <div>
-              <div style={{ fontSize:'14px', fontWeight:700, color:T.cyan,
-                letterSpacing:'0.04em' }}>{selected.ip}</div>
-              <div style={{ fontSize:'11px', color:T.muted, marginTop:'3px' }}>
+              <div style={{ fontSize: '14px', fontWeight: 700, color: T.cyan, letterSpacing: '0.04em' }}>
+                {selected.ip}
+              </div>
+              <div style={{ fontSize: '11px', color: T.muted, marginTop: '3px' }}>
                 {selected.city ? `${selected.city}, ` : ''}{selected.country}
                 {selected.lat != null && ` · ${selected.lat.toFixed(2)}°, ${selected.lng.toFixed(2)}°`}
               </div>
             </div>
-            <button onClick={() => setSelected(null)}
-              style={{ background:'none', border:'none', cursor:'pointer',
-                color:T.muted, fontSize:'18px', lineHeight:1, padding:'2px 6px' }}
-              aria-label="Close">×</button>
+            <button
+              onClick={() => setSelected(null)}
+              style={{
+                background: 'none', border: 'none', cursor: 'pointer',
+                color: T.muted, fontSize: '18px', lineHeight: 1, padding: '2px 6px',
+              }}
+              aria-label="Close"
+            >×</button>
           </div>
-          <div style={{ display:'grid',
-            gridTemplateColumns:'repeat(auto-fit,minmax(130px,1fr))', gap:'12px' }}>
+          <div style={{
+            display: 'grid',
+            gridTemplateColumns: 'repeat(auto-fit,minmax(130px,1fr))',
+            gap: '12px',
+          }}>
             {[
-              { label:'Severity',    value:<SevBadge sev={selected.severity} /> },
-              { label:'Attack Type', value:selected.type },
-              { label:'Event Count', value:selected.count },
-              { label:'TOR Exit',    value:selected.isTor   ? '✓ Yes' : '—' },
-              { label:'Open Proxy',  value:selected.isProxy ? '✓ Yes' : '—' },
-              { label:'Abuse Score', value:selected.abuseScore != null ? `${selected.abuseScore}%` : '—' },
+              { label: 'Severity',    value: <SevBadge sev={selected.severity} /> },
+              { label: 'Attack Type', value: selected.type },
+              { label: 'Event Count', value: selected.count },
+              { label: 'TOR Exit',    value: selected.isTor   ? '✓ Yes' : '—' },
+              { label: 'Open Proxy',  value: selected.isProxy ? '✓ Yes' : '—' },
+              { label: 'Abuse Score', value: selected.abuseScore != null ? `${selected.abuseScore}%` : '—' },
             ].map(f => (
               <div key={f.label}>
-                <div style={{ fontSize:'10px', color:T.muted, textTransform:'uppercase',
-                  letterSpacing:'0.08em', marginBottom:'4px' }}>{f.label}</div>
-                <div style={{ fontSize:'12px', fontWeight:600, color:T.text }}>{f.value}</div>
+                <div style={{
+                  fontSize: '10px', color: T.muted, textTransform: 'uppercase',
+                  letterSpacing: '0.08em', marginBottom: '4px',
+                }}>{f.label}</div>
+                <div style={{ fontSize: '12px', fontWeight: 600, color: T.text }}>{f.value}</div>
               </div>
             ))}
           </div>
         </div>
       )}
 
+      {/* ── Global styles ───────────────────────────────────────────────────── */}
       <style>{`
-        @keyframes shimmer  { 0%,100%{opacity:.4} 50%{opacity:.9} }
+        @keyframes shimmer { 0%,100%{opacity:.4} 50%{opacity:.9} }
         @keyframes slideUp  { from{opacity:0;transform:translateY(6px)} to{opacity:1;transform:none} }
+
+        /* Override Leaflet default tooltip white bubble */
+        .sentinal-tooltip .leaflet-tooltip {
+          background: transparent !important;
+          border: none !important;
+          box-shadow: none !important;
+          padding: 0 !important;
+        }
+        .leaflet-tooltip.sentinal-tooltip {
+          background: transparent !important;
+          border: none !important;
+          box-shadow: none !important;
+          padding: 0 !important;
+        }
+
+        /* Leaflet attribution — keep it minimal and dark */
+        .leaflet-control-attribution {
+          background: rgba(13,17,23,0.75) !important;
+          color: #4a5568 !important;
+          font-size: 9px !important;
+        }
+        .leaflet-control-attribution a {
+          color: #4a5568 !important;
+        }
+
+        /* Leaflet zoom controls — dark theme */
+        .leaflet-control-zoom a {
+          background: #161B22 !important;
+          color: #00F5FF !important;
+          border-color: rgba(0,245,255,0.15) !important;
+        }
+        .leaflet-control-zoom a:hover {
+          background: rgba(0,245,255,0.08) !important;
+        }
       `}</style>
     </div>
   );
