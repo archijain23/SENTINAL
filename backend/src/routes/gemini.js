@@ -38,6 +38,16 @@ const geminiLimiter = rateLimit({
   },
 });
 
+// Shared history validator: accepts { role: string, text: string } shape only
+// Maps any 'assistant' role to 'model' for Gemini SDK compatibility
+const validateHistory = (raw) => {
+  if (!Array.isArray(raw)) return [];
+  return raw
+    .filter(h => h && typeof h.role === 'string' && typeof h.text === 'string')
+    .map(h => ({ role: h.role === 'assistant' ? 'model' : h.role, text: h.text }))
+    .slice(-10);
+};
+
 // ── POST /api/gemini/chat ─────────────────────────────────────────────────────
 // Body: { message: string, history?: [{ role: 'user'|'model', text: string }] }
 router.post('/chat', geminiLimiter, async (req, res) => {
@@ -47,12 +57,7 @@ router.post('/chat', geminiLimiter, async (req, res) => {
     return res.status(400).json({ success: false, message: 'message is required', code: 'VALIDATION_ERROR' });
   }
 
-  // Validate history — max 10 turns, correct shape
-  const safeHistory = Array.isArray(history)
-    ? history
-        .filter(h => h && typeof h.role === 'string' && typeof h.text === 'string')
-        .slice(-10)
-    : [];
+  const safeHistory = validateHistory(history);
 
   try {
     const attacks = await AttackEvent.find().sort({ timestamp: -1 }).limit(50).lean().catch(() => []);
@@ -90,10 +95,14 @@ router.get('/chat/stream', geminiLimiter, async (req, res) => {
     return;
   }
 
+  // FIX: apply same validation as /chat POST — prevents malformed history
+  // from reaching chatStream() when frontend sends { role, text } flat objects
   let safeHistory = [];
   try {
-    if (req.query.history) safeHistory = JSON.parse(req.query.history).slice(-10);
-  } catch { /* ignore malformed history */ }
+    if (req.query.history) {
+      safeHistory = validateHistory(JSON.parse(req.query.history));
+    }
+  } catch { /* ignore malformed history JSON */ }
 
   res.setHeader('Content-Type', 'text/event-stream');
   res.setHeader('Cache-Control', 'no-cache');
