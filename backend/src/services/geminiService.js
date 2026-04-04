@@ -1,13 +1,16 @@
 /**
  * geminiService.js — SENTINAL Gemini AI integration
  *
- * Verified free-tier model chain (April 2026):
- *   1. gemini-2.0-flash        — stable GA, 15 RPM, 1500 RPD — primary
- *   2. gemini-2.0-flash-lite   — stable GA, higher RPM quota  — fallback #1
- *   3. gemini-1.5-flash-latest — stable GA (latest alias)     — fallback #2
+ * Free-tier model chain (April 2026):
+ *   1. gemini-2.5-flash        — primary   — 15 RPM, 250 RPD
+ *   2. gemini-2.5-flash-8b     — fallback  — higher RPM, smaller model
+ *   3. gemini-2.5-flash-lite   — last resort — preview, most lenient quota
  *
- * NOTE: gemini-1.5-flash (without -latest) returned 404 in April 2026.
- *       Always use the -latest alias for 1.5-series models.
+ * Retired as of March/April 2026 (DO NOT USE):
+ *   ✗ gemini-2.0-flash          — deprecated Feb 2026, retired Mar 3 2026
+ *   ✗ gemini-2.0-flash-lite     — same retirement schedule
+ *   ✗ gemini-1.5-flash          — fully discontinued, 404 on v1beta
+ *   ✗ gemini-1.5-flash-latest   — same, -latest alias also returns 404
  *
  * Capabilities:
  *   1. chat()           — Security Co-Pilot Q&A grounded in live attack telemetry
@@ -23,11 +26,12 @@ const { GoogleGenerativeAI } = require('@google/generative-ai');
 const logger = require('../utils/logger');
 
 // ── Model chain ────────────────────────────────────────────────────────────────
-// gemini-1.5-flash (bare) returns 404 as of April 2026 — use -latest alias.
+// All 2.0-series and 1.5-series models are retired as of March/April 2026.
+// Free-tier available models: 2.5-flash, 2.5-flash-8b, 2.5-flash-lite
 const MODEL_CHAIN = [
-  'gemini-2.0-flash',        // primary  — 15 RPM, 1500 RPD
-  'gemini-2.0-flash-lite',   // fallback — higher RPM, lower quality
-  'gemini-1.5-flash-latest', // last resort — stable 1.5 via latest alias
+  'gemini-2.5-flash',        // primary   — 15 RPM, 250 RPD
+  'gemini-2.5-flash-8b',     // fallback  — higher RPM, lighter quality
+  'gemini-2.5-flash-lite',   // last resort — preview, most lenient quota
 ];
 
 let _genAI  = null;
