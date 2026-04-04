@@ -317,14 +317,18 @@ export default function SimulatePage() {
   };
 
   /* ── Fetch geo-intel for the fired IP ──────────────────────────────────── */
+  // Backend now returns { success: true, data: geoIntel | null }.
+  // data === null means the IP has no prior geo-enriched events yet — this is
+  // normal for freshly rotated IPs and is not an error condition.
   const fetchGeoIntel = async (ip, logId) => {
     try {
-      const res  = await fetch(`${API}/api/geo/ip/${encodeURIComponent(ip)}`);
-      if (!res.ok) return;
-      const data = await res.json();
-      const entry = data?.data ?? data;
+      const res = await fetch(`${API}/api/geo/ip/${encodeURIComponent(ip)}`);
+      if (!res.ok) return; // non-2xx: silent — geo is enrichment only
+      const body = await res.json();
+      // data is null when the IP has no stored geo events yet — skip silently
+      if (!body.success || !body.data) return;
       setAttackLog(prev => prev.map(l =>
-        l.id === logId ? { ...l, geoIntel: entry } : l
+        l.id === logId ? { ...l, geoIntel: body.data } : l
       ));
     } catch { /* silent — geo is enrichment, not critical */ }
   };
@@ -744,8 +748,8 @@ export default function SimulatePage() {
                     {log.geoIntel?.country && (
                       <span style={{ fontSize: '0.6875rem', color: '#64748b' }}>
                         🌍 {log.geoIntel.country}
-                        {log.geoIntel.tor_count > 0 && ' • 🧅 TOR'}
-                        {log.geoIntel.proxy_count > 0 && ' • 🔀 Proxy'}
+                        {log.geoIntel.is_tor   && ' • 🧅 TOR'}
+                        {log.geoIntel.is_proxy && ' • 🔀 Proxy'}
                       </span>
                     )}
                   </div>
