@@ -1,0 +1,27 @@
+.page { display: flex; flex-direction: column; gap: 1.25rem; }
+.header { display: flex; justify-content: space-between; align-items: flex-start; flex-wrap: wrap; gap: 0.75rem; }
+.title { font-size: 1.125rem; font-weight: 600; color: #E2E8F0; }
+.lastCheck { font-size: 0.7rem; color: #4A5568; margin-top: 3px; font-family: monospace; }
+.summary { display: flex; align-items: center; gap: 0.5rem; flex-wrap: wrap; }
+.sumOnline   { font-size: 0.72rem; padding: 3px 10px; border-radius: 9999px; background: rgba(0,255,136,0.08); color: #00FF88; border: 1px solid rgba(0,255,136,0.2); }
+.sumDegraded { font-size: 0.72rem; padding: 3px 10px; border-radius: 9999px; background: rgba(255,140,0,0.08); color: #FF8C00; border: 1px solid rgba(255,140,0,0.2); }
+.sumOffline  { font-size: 0.72rem; padding: 3px 10px; border-radius: 9999px; background: rgba(255,61,113,0.08); color: #FF3D71; border: 1px solid rgba(255,61,113,0.2); }
+.refreshBtn { background: rgba(255,255,255,0.04); border: 1px solid rgba(255,255,255,0.08); color: #718096; padding: 6px; border-radius: 6px; cursor: pointer; display: flex; align-items: center; justify-content: center; }
+.refreshBtn:hover { color: #A0AEC0; }
+.cardGrid { display: grid; grid-template-columns: repeat(auto-fill, minmax(280px, 1fr)); gap: 1rem; }
+.skeletonCard { height: 140px; border-radius: 8px; background: linear-gradient(90deg, rgba(255,255,255,0.03) 25%, rgba(255,255,255,0.06) 50%, rgba(255,255,255,0.03) 75%); background-size: 200% 100%; animation: shimmer 1.4s ease-in-out infinite; }
+@keyframes shimmer { 0%{background-position:-200% 0} 100%{background-position:200% 0} }
+.empty { display: flex; flex-direction: column; gap: 0.75rem; align-items: center; padding: 3rem; color: #4A5568; font-size: 0.8rem; }
+.card { background: rgba(255,255,255,0.02); border: 1px solid rgba(255,255,255,0.06); border-radius: 10px; padding: 1rem; display: flex; flex-direction: column; gap: 0.6rem; transition: border-color 0.15s; }
+.card:hover { border-color: rgba(255,255,255,0.1); }
+.cardTop { display: flex; justify-content: space-between; align-items: center; }
+.cardName { display: flex; align-items: center; gap: 0.5rem; font-size: 0.85rem; font-weight: 500; color: #CBD5E0; }
+.statusPill { font-size: 0.62rem; font-family: monospace; text-transform: uppercase; padding: 2px 8px; border-radius: 9999px; letter-spacing: 0.05em; }
+.status_online   { background: rgba(0,255,136,0.1); color: #00FF88; border: 1px solid rgba(0,255,136,0.2); }
+.status_degraded { background: rgba(255,140,0,0.1); color: #FF8C00; border: 1px solid rgba(255,140,0,0.2); }
+.status_offline  { background: rgba(255,61,113,0.1); color: #FF3D71; border: 1px solid rgba(255,61,113,0.2); }
+.status_idle     { background: rgba(255,255,255,0.04); color: #4A5568; border: 1px solid rgba(255,255,255,0.08); }
+.cardDesc { font-size: 0.72rem; color: #4A5568; }
+.cardMeta { display: flex; flex-wrap: wrap; gap: 5px; }
+.metaChip { font-size: 0.65rem; font-family: monospace; background: rgba(255,255,255,0.04); border: 1px solid rgba(255,255,255,0.07); color: #4A5568; padding: 2px 7px; border-radius: 4px; }
+.lastError { font-size: 0.68rem; color: #FF3D71; font-family: monospace; padding: 5px 8px; background: rgba(255,61,113,0.06); border-radius: 4px; }

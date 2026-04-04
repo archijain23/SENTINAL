@@ -1,15 +1,20 @@
-import React from 'react';
 import styles from './StatusDot.module.css';
 
-/**
- * Small animated status indicator.
- * status: 'online' | 'degraded' | 'offline' | 'idle'
- */
-export default function StatusDot({ status = 'idle', label, showLabel = false }) {
+const COLORS = {
+  online:   '#00FF88',
+  degraded: '#FF8C00',
+  offline:  '#FF3D71',
+  idle:     '#4A5568',
+};
+
+export default function StatusDot({ status = 'idle', size = 8 }) {
+  const color = COLORS[status] ?? COLORS.idle;
+  const pulse = status === 'online' || status === 'degraded';
   return (
-    <span className={`${styles.wrap} ${styles[status]}`} title={label || status}>
-      <span className={styles.dot} />
-      {showLabel && <span className={styles.label}>{label || status}</span>}
-    </span>
+    <span
+      className={`${styles.dot} ${pulse ? styles.pulse : ''}`}
+      style={{ width: size, height: size, background: color, boxShadow: pulse ? `0 0 0 0 ${color}` : 'none' }}
+      title={status}
+    />
   );
 }

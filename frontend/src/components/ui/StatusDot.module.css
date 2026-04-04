@@ -1,37 +1,7 @@
-.wrap {
-  display: inline-flex;
-  align-items: center;
-  gap: 5px;
-}
-
-.dot {
-  width: 7px;
-  height: 7px;
-  border-radius: 50%;
-  flex-shrink: 0;
-}
-
-.label {
-  font-family: var(--font-mono);
-  font-size: 0.65rem;
-  font-weight: 600;
-  letter-spacing: 0.08em;
-  text-transform: uppercase;
-}
-
-.online  .dot { background: #00FF88; box-shadow: 0 0 6px #00FF88; animation: pulse 2s ease-in-out infinite; }
-.online  .label { color: #00FF88; }
-
-.degraded .dot { background: #FFB800; box-shadow: 0 0 6px #FFB800; animation: pulse 1.5s ease-in-out infinite; }
-.degraded .label { color: #FFB800; }
-
-.offline  .dot { background: #FF3D71; box-shadow: 0 0 6px #FF3D71; }
-.offline  .label { color: #FF3D71; }
-
-.idle     .dot { background: #3D4663; }
-.idle     .label { color: #6B7894; }
-
+.dot { display: inline-block; border-radius: 50%; flex-shrink: 0; }
+.pulse { animation: pulse 2s ease-in-out infinite; }
 @keyframes pulse {
-  0%, 100% { opacity: 1; transform: scale(1); }
-  50%       { opacity: 0.5; transform: scale(0.8); }
+  0%   { box-shadow: 0 0 0 0 currentColor; }
+  70%  { box-shadow: 0 0 0 5px transparent; }
+  100% { box-shadow: 0 0 0 0 transparent; }
 }
