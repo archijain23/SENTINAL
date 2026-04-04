@@ -10,6 +10,7 @@
  */
 const express       = require('express');
 const router        = express.Router();
+const axios         = require('axios');
 const SystemLog     = require('../models/SystemLog');
 const attackService = require('../services/attackService');
 const logger        = require('../utils/logger');
@@ -55,11 +56,6 @@ const ACTION_MAP = {
   unknown:           'Flag for manual review, apply rate limiting to the source IP.',
 };
 
-/**
- * Build a structured explanation JSON string for simulated attacks.
- * Matches the schema that parseExplanation() + ForensicsPage AI Analysis panel expect:
- *   { summary, what_happened, potential_impact, recommended_action, rule_triggered, source }
- */
 const buildSimulatedExplanation = (attackType, severity) =>
   JSON.stringify({
     summary:            `${severity.toUpperCase()} severity ${attackType.replace(/_/g, ' ')} attack detected`,
@@ -69,6 +65,82 @@ const buildSimulatedExplanation = (attackType, severity) =>
     rule_triggered:     'DEMO_SIMULATE',
     source:             'static',
   });
+
+// ── RFC-1918 / loopback / link-local ranges ──────────────────────────────────
+const PRIVATE_IP_RE = /^(
+  127\.|
+  10\.|
+  192\.168\.|
+  172\.(1[6-9]|2\d|3[01])\. |
+  ::1$|
+  ^fc|^fd
+)/x;
+
+function isPrivateIp(ip) {
+  return (
+    ip === '127.0.0.1'   ||
+    ip === '::1'          ||
+    ip.startsWith('10.') ||
+    ip.startsWith('192.168.') ||
+    /^172\.(1[6-9]|2\d|3[01])\./.test(ip)
+  );
+}
+
+/**
+ * Fetch geo data for a public IP using ip-api.com (free, no key required).
+ * Returns a geoIntel-shaped object or null on any failure.
+ * Never throws — failures are silent (geo is best-effort enrichment).
+ */
+async function fetchGeoForIp(ip) {
+  if (isPrivateIp(ip)) {
+    // Return a stub so the IP still appears in the table with a country label
+    return {
+      country:                'Private/Local',
+      country_code:           'XX',
+      city:                   null,
+      latitude:               null,
+      longitude:              null,
+      isp:                    'Local Network',
+      org:                    null,
+      is_tor:                 false,
+      is_proxy:               false,
+      is_hosting:             false,
+      abuse_confidence_score: 0,
+    };
+  }
+
+  try {
+    // ip-api.com — free tier, 45 req/min, no API key
+    // Fields: status,country,countryCode,city,lat,lon,isp,org,proxy,hosting
+    const { data } = await axios.get(
+      `http://ip-api.com/json/${encodeURIComponent(ip)}` +
+      '?fields=status,country,countryCode,city,lat,lon,isp,org,proxy,hosting',
+      { timeout: 3000 }
+    );
+
+    if (!data || data.status !== 'success') {
+      logger.warn(`[GEO-ENRICH] ip-api returned non-success for ${ip}: ${data?.message}`);
+      return null;
+    }
+
+    return {
+      country:                data.country      || null,
+      country_code:           data.countryCode  || null,
+      city:                   data.city         || null,
+      latitude:               data.lat          ?? null,
+      longitude:              data.lon          ?? null,
+      isp:                    data.isp          || null,
+      org:                    data.org          || null,
+      is_tor:                 false,                        // ip-api free tier has no TOR field
+      is_proxy:               data.proxy        ?? false,
+      is_hosting:             data.hosting      ?? false,
+      abuse_confidence_score: 0,
+    };
+  } catch (err) {
+    logger.warn(`[GEO-ENRICH] lookup failed for ${ip}: ${err.message}`);
+    return null;
+  }
+}
 
 // POST /api/nexus/trigger
 router.post('/trigger', async (req, res) => {
@@ -98,7 +170,13 @@ router.post('/trigger', async (req, res) => {
 
     logger.info(`[NEXUS-TRIGGER] Simulating ${attackType} from ${ip} (${severity})`);
 
-    // Step 1 — Create a real SystemLog so requestId has a valid ObjectId ref
+    // Step 1 — Enrich with geo data BEFORE saving (fire-and-forget safe timeout)
+    const geoIntel = await fetchGeoForIp(ip);
+    if (geoIntel) {
+      logger.info(`[GEO-ENRICH] ${ip} → ${geoIntel.country ?? 'unknown'} (${geoIntel.latitude ?? 'no lat'}, ${geoIntel.longitude ?? 'no lng'})`);
+    }
+
+    // Step 2 — Create a real SystemLog so requestId has a valid ObjectId ref
     const demoLog = await SystemLog.create({
       projectId:    'nexus-demo',
       method:       'GET',
@@ -110,7 +188,7 @@ router.post('/trigger', async (req, res) => {
       responseCode: 200
     });
 
-    // Step 2 — reportAttack saves AttackEvent + calls Nexus fire-and-forget
+    // Step 3 — reportAttack saves AttackEvent + calls Nexus fire-and-forget
     const attack = await attackService.reportAttack({
       requestId:            demoLog._id,
       ip,
@@ -122,7 +200,8 @@ router.post('/trigger', async (req, res) => {
       payload:              `/demo/${attackType}-attack`,
       explanation:          buildSimulatedExplanation(attackType, severity),
       mitigationSuggestion: ACTION_MAP[attackType] || 'Nexus will evaluate and enforce policy',
-      responseCode:         200
+      responseCode:         200,
+      geoIntel:             geoIntel || null,   // ← persisted into AttackEvent.geoIntel
     });
 
     logger.info(`[NEXUS-TRIGGER] AttackEvent created: ${attack._id}`);
@@ -137,6 +216,12 @@ router.post('/trigger', async (req, res) => {
         attackType,
         severity,
         confidence,
+        geoIntel:  geoIntel ? {
+          country:  geoIntel.country,
+          city:     geoIntel.city,
+          lat:      geoIntel.latitude,
+          lng:      geoIntel.longitude,
+        } : null,
         note: 'Check /api/actions/pending and /api/audit in ~2 seconds'
       }
     });

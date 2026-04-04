@@ -5,16 +5,18 @@
  * No new npm installs required.
  *
  * Data flow:
- *   1. GET /api/geo/threats  — all unique IPs with counts + geo
- *   2. Fallback: /api/geo/heatmap if threats returns empty
- *   3. socket 'attack:new'   — real-time updates
+ *   1. GET /api/geo/threats  — all unique IPs with counts + geo (MongoDB-direct)
+ *   2. socket 'attack:new'   — real-time updates pushed by gateway
+ *
+ * Socket fix: uses getSocket() (singleton re-use) instead of connectSocket()
+ * to avoid triggering a disconnect/reconnect on every page mount.
  */
 import { useState, useEffect, useCallback, useRef, Suspense } from 'react';
 import { Canvas, useFrame, useThree } from '@react-three/fiber';
-import { OrbitControls, Sphere, Html } from '@react-three/drei';
+import { OrbitControls, Sphere }      from '@react-three/drei';
 import * as THREE from 'three';
-import { ipAPI } from '../services/api';
-import { connectSocket, SOCKET_EVENTS } from '../services/socket';
+import { ipAPI }                        from '../services/api';
+import { getSocket, SOCKET_EVENTS }     from '../services/socket';
 
 /* ── Design tokens ─────────────────────────────────────────────────────────── */
 const T = {
@@ -45,10 +47,11 @@ function normalise(raw) {
   return {
     id:       raw._id ?? raw.id ?? raw.ip ?? Math.random().toString(36).slice(2),
     ip:       raw.ip ?? raw.srcIP ?? '0.0.0.0',
-    country:  raw.country  ?? geo.country  ?? 'Unknown',
-    city:     raw.city     ?? geo.city     ?? null,
-    lat:      raw.latitude  ?? geo.latitude  ?? null,
-    lng:      raw.longitude ?? geo.longitude ?? null,
+    country:  raw.country   ?? geo.country   ?? 'Unknown',
+    city:     raw.city      ?? geo.city      ?? null,
+    // /threats: flattened lat/lng; socket push: nested under geoIntel
+    lat:      raw.latitude  ?? geo.latitude  ?? raw.lat ?? null,
+    lng:      raw.longitude ?? geo.longitude ?? raw.lng ?? null,
     type:     raw.attackType ?? raw.type ?? 'Unknown',
     severity: (raw.severity ?? 'low').toUpperCase(),
     count:    raw.count ?? 1,
@@ -81,8 +84,7 @@ function AttackDot({ attack, onHover, onClick }) {
   useFrame(({ clock }) => {
     if (!meshRef.current) return;
     const pulse = 1 + 0.25 * Math.sin(clock.elapsedTime * 3 + attack.lat);
-    const scale = hovered ? 1.8 : pulse;
-    meshRef.current.scale.setScalar(scale);
+    meshRef.current.scale.setScalar(hovered ? 1.8 : pulse);
   });
 
   return (
@@ -104,17 +106,13 @@ function GlowRing({ attack }) {
   const ringRef = useRef();
   const s       = sevStyle(attack.severity);
   const pos     = latLngToVec3(attack.lat, attack.lng, 1.012);
-
-  // orient ring to face outward from sphere surface
   const normal  = pos.clone().normalize();
   const quat    = new THREE.Quaternion().setFromUnitVectors(
     new THREE.Vector3(0, 0, 1), normal
   );
 
   useFrame(({ clock }) => {
-    if (ringRef.current) {
-      ringRef.current.rotation.z = clock.elapsedTime * 1.5;
-    }
+    if (ringRef.current) ringRef.current.rotation.z = clock.elapsedTime * 1.5;
   });
 
   return (
@@ -125,18 +123,18 @@ function GlowRing({ attack }) {
   );
 }
 
-/* ── Animated connection line from dot to north pole ─────────────────────── */
+/* ── Animated ping line radiating outward from dot ─────────────────────────── */
 function PingLine({ attack }) {
   const lineRef = useRef();
   const s       = sevStyle(attack.severity);
   const start   = latLngToVec3(attack.lat, attack.lng, 1.01);
   const end     = latLngToVec3(attack.lat, attack.lng, 1.06);
-  const pts     = [start, end];
-  const geo     = new THREE.BufferGeometry().setFromPoints(pts);
+  const geo     = new THREE.BufferGeometry().setFromPoints([start, end]);
 
   useFrame(({ clock }) => {
     if (lineRef.current) {
-      lineRef.current.material.opacity = 0.3 + 0.4 * Math.abs(Math.sin(clock.elapsedTime * 4 + attack.lng));
+      lineRef.current.material.opacity =
+        0.3 + 0.4 * Math.abs(Math.sin(clock.elapsedTime * 4 + attack.lng));
     }
   });
 
@@ -151,46 +149,34 @@ function PingLine({ attack }) {
 function GlobeScene({ attacks, onHover, onSelect, hovered }) {
   const { camera } = useThree();
 
-  useEffect(() => {
-    camera.position.set(0, 0, 2.6);
-  }, [camera]);
+  useEffect(() => { camera.position.set(0, 0, 2.6); }, [camera]);
 
   const dots = attacks.filter(a => a.lat != null && a.lng != null);
 
-  // Globe wireframe — latitude / longitude grid lines
+  // Latitude / longitude grid lines
   const gridLines = [];
   for (let lat = -80; lat <= 80; lat += 20) {
     const pts = [];
-    for (let lng = 0; lng <= 360; lng += 3) {
-      pts.push(latLngToVec3(lat, lng - 180, 1.001));
-    }
-    const geo = new THREE.BufferGeometry().setFromPoints(pts);
-    gridLines.push(<line key={`lat${lat}`} geometry={geo}><lineBasicMaterial color={0x1a2a3a} transparent opacity={0.6} /></line>);
+    for (let lng = 0; lng <= 360; lng += 3) pts.push(latLngToVec3(lat, lng - 180, 1.001));
+    const g = new THREE.BufferGeometry().setFromPoints(pts);
+    gridLines.push(<line key={`lat${lat}`} geometry={g}><lineBasicMaterial color={0x1a2a3a} transparent opacity={0.6} /></line>);
   }
   for (let lng = 0; lng < 360; lng += 30) {
     const pts = [];
-    for (let lat = -90; lat <= 90; lat += 3) {
-      pts.push(latLngToVec3(lat, lng - 180, 1.001));
-    }
-    const geo = new THREE.BufferGeometry().setFromPoints(pts);
-    gridLines.push(<line key={`lng${lng}`} geometry={geo}><lineBasicMaterial color={0x1a2a3a} transparent opacity={0.6} /></line>);
+    for (let lat = -90; lat <= 90; lat += 3) pts.push(latLngToVec3(lat, lng - 180, 1.001));
+    const g = new THREE.BufferGeometry().setFromPoints(pts);
+    gridLines.push(<line key={`lng${lng}`} geometry={g}><lineBasicMaterial color={0x1a2a3a} transparent opacity={0.6} /></line>);
   }
 
   return (
     <>
       <ambientLight intensity={0.3} />
-      <pointLight position={[4, 4, 4]} intensity={1.2} color={0x00f5ff} />
+      <pointLight position={[4, 4, 4]}   intensity={1.2} color={0x00f5ff} />
       <pointLight position={[-4, -2, -4]} intensity={0.4} color={0xff3d71} />
 
       {/* Globe core */}
       <Sphere args={[1, 64, 64]}>
-        <meshStandardMaterial
-          color={0x050d15}
-          metalness={0.1}
-          roughness={0.8}
-          transparent
-          opacity={0.95}
-        />
+        <meshStandardMaterial color={0x050d15} metalness={0.1} roughness={0.8} transparent opacity={0.95} />
       </Sphere>
 
       {/* Atmosphere glow */}
@@ -198,14 +184,12 @@ function GlobeScene({ attacks, onHover, onSelect, hovered }) {
         <meshBasicMaterial color={0x003344} transparent opacity={0.08} side={THREE.BackSide} />
       </Sphere>
 
-      {/* Grid lines */}
       {gridLines}
 
-      {/* Attack dots */}
       {dots.map(a => (
         <group key={a.ip}>
           <AttackDot attack={a} onHover={onHover} onClick={onSelect} />
-          <PingLine attack={a} />
+          <PingLine  attack={a} />
           {hovered?.ip === a.ip && <GlowRing attack={a} />}
         </group>
       ))}
@@ -261,25 +245,14 @@ export default function GeoPage() {
   const [error,    setError]    = useState(null);
   const [selected, setSelected] = useState(null);
   const [hovered,  setHovered]  = useState(null);
+  const [live,     setLive]     = useState(false);
 
   /* ─ Load ─────────────────────────────────────────────────────────────── */
   const load = useCallback(async () => {
     setLoading(true); setError(null);
     try {
-      let raw = await ipAPI.getGeoThreats();
-      let list = Array.isArray(raw) ? raw : (raw?.data ?? raw?.threats ?? []);
-
-      if (list.length === 0) {
-        const hm = await ipAPI.getHeatmap?.().catch(() => null)
-                ?? await ipAPI.getGeoHeatmap?.().catch(() => null);
-        const hmData = hm?.heatmap ?? hm?.data ?? hm ?? [];
-        list = Array.isArray(hmData) ? hmData.map(h => ({
-          ip: h.country_code ?? 'Unknown',
-          country: h.country, latitude: h.lat, longitude: h.lng,
-          attackType: 'unknown', severity: 'low', count: h.count,
-        })) : [];
-      }
-
+      const raw  = await ipAPI.getGeoThreats();
+      const list = Array.isArray(raw) ? raw : (raw?.data ?? raw?.threats ?? []);
       setAttacks(list.map(normalise));
     } catch (e) {
       setError(e.message);
@@ -292,32 +265,47 @@ export default function GeoPage() {
 
   /* ─ Real-time socket ─────────────────────────────────────────────────── */
   useEffect(() => {
-    const socket = connectSocket();
-    const ev1 = SOCKET_EVENTS?.ATTACK_NEW ?? 'attack:new';
+    // getSocket() — re-uses singleton, never disconnects/reconnects the shared socket
+    const socket  = getSocket();
+
     const handler = event => {
+      setLive(true);
       const item = normalise(event);
       setAttacks(prev => {
         const idx = prev.findIndex(a => a.ip === item.ip);
         if (idx !== -1) {
+          // Update existing entry: bump count, refresh severity + geo if new data arrived
           const next = [...prev];
-          next[idx] = { ...next[idx], count: next[idx].count + 1,
-            severity: item.severity, type: item.type };
+          next[idx] = {
+            ...next[idx],
+            count:    next[idx].count + 1,
+            severity: item.severity,
+            type:     item.type,
+            // Upgrade geo coords if the new event has them and the old one didn't
+            lat: next[idx].lat ?? item.lat,
+            lng: next[idx].lng ?? item.lng,
+            country: next[idx].country !== 'Unknown' ? next[idx].country : item.country,
+            city:    next[idx].city    ?? item.city,
+          };
           return next;
         }
         return [item, ...prev].slice(0, 200);
       });
     };
-    socket.on(ev1, handler);
-    socket.on('geo:event', handler);
+
+    socket.on(SOCKET_EVENTS.NEW_ATTACK, handler);
+    socket.on('geo:event',              handler);
+
+    // Only remove listeners — never disconnect the singleton
     return () => {
-      socket.off(ev1, handler);
-      socket.off('geo:event', handler);
+      socket.off(SOCKET_EVENTS.NEW_ATTACK, handler);
+      socket.off('geo:event',              handler);
     };
   }, []);
 
   const handleSelect = useCallback(a => setSelected(p => p?.id === a.id ? null : a), []);
 
-  /* ─ Stats ────────────────────────────────────────────────────────────── */
+  /* ─ Derived stats ────────────────────────────────────────────────────── */
   const stats = {
     total:     attacks.reduce((s, a) => s + a.count, 0),
     countries: new Set(attacks.map(a => a.country).filter(c => c !== 'Unknown')).size,
@@ -325,7 +313,6 @@ export default function GeoPage() {
     high:      attacks.filter(a => a.severity === 'HIGH').length,
     tor:       attacks.filter(a => a.isTor || a.isProxy).length,
   };
-
   const mapped = attacks.filter(a => a.lat != null).length;
 
   return (
@@ -333,10 +320,21 @@ export default function GeoPage() {
 
       {/* ── Page header ── */}
       <div style={{ marginBottom:'20px' }}>
-        <h1 style={{ fontFamily:'monospace', fontWeight:700, fontSize:'13px',
-          letterSpacing:'0.18em', textTransform:'uppercase', color:T.cyan, margin:'0 0 4px' }}>
-          Geo Threat Map
-        </h1>
+        <div style={{ display:'flex', alignItems:'center', gap:'10px', marginBottom:'4px' }}>
+          <h1 style={{ fontFamily:'monospace', fontWeight:700, fontSize:'13px',
+            letterSpacing:'0.18em', textTransform:'uppercase', color:T.cyan, margin:0 }}>
+            Geo Threat Map
+          </h1>
+          {live && (
+            <span style={{
+              fontFamily:'monospace', fontSize:'9px', fontWeight:700,
+              letterSpacing:'0.10em', textTransform:'uppercase',
+              padding:'2px 8px', borderRadius:'4px',
+              color:'#00FF88', background:'rgba(0,255,136,0.08)',
+              border:'1px solid rgba(0,255,136,0.2)',
+            }}>LIVE</span>
+          )}
+        </div>
         <p style={{ margin:0, fontSize:'11px', color:T.muted }}>
           Live attack origins · IP geolocation · 3D globe overlay
         </p>
@@ -399,7 +397,7 @@ export default function GeoPage() {
           </Canvas>
         </div>
 
-        {/* hover tooltip overlay */}
+        {/* hover tooltip */}
         {hovered && (
           <div style={{ position:'absolute', bottom:'16px', left:'16px', pointerEvents:'none',
             background:'rgba(13,17,23,0.92)', border:`1px solid ${sevStyle(hovered.severity).border}`,
@@ -427,7 +425,7 @@ export default function GeoPage() {
             transform:'translateX(-50%)', fontFamily:'monospace', fontSize:'11px',
             color:T.muted, background:'rgba(13,17,23,0.85)', padding:'6px 14px',
             borderRadius:'6px', pointerEvents:'none', whiteSpace:'nowrap' }}>
-            No geo-located events yet — fire an attack on /simulate to populate the globe
+            No geo-located events — fire an attack on /simulate to populate the globe
           </div>
         )}
       </div>
@@ -441,7 +439,7 @@ export default function GeoPage() {
             letterSpacing:'0.12em' }}>Attack Origins Feed</span>
           <div style={{ display:'flex', gap:'10px', alignItems:'center' }}>
             <span style={{ fontSize:'10px', color:T.muted }}>
-              {loading ? 'Loading…' : `${attacks.length} unique sources`}
+              {loading ? 'Loading…' : `${attacks.length} unique source${attacks.length !== 1 ? 's' : ''}`}
             </span>
             <button onClick={load} disabled={loading}
               style={{ fontFamily:'monospace', fontSize:'10px', color:T.cyan,
@@ -478,7 +476,7 @@ export default function GeoPage() {
               ) : attacks.length === 0 ? (
                 <tr>
                   <td colSpan={6} style={{ padding:'36px', textAlign:'center', color:T.muted }}>
-                    No attacks recorded yet
+                    No attacks recorded yet — fire a simulation on /simulate
                   </td>
                 </tr>
               ) : attacks.map(a => (
@@ -487,19 +485,11 @@ export default function GeoPage() {
                   style={{
                     borderTop:`1px solid ${T.borderD}`,
                     cursor:'pointer',
-                    background: selected?.id === a.id
-                      ? `${sevStyle(a.severity).bg}`
-                      : 'transparent',
+                    background: selected?.id === a.id ? sevStyle(a.severity).bg : 'transparent',
                     transition:'background 120ms',
                   }}
-                  onMouseEnter={e => {
-                    if (selected?.id !== a.id)
-                      e.currentTarget.style.background='rgba(0,245,255,0.02)';
-                  }}
-                  onMouseLeave={e => {
-                    if (selected?.id !== a.id)
-                      e.currentTarget.style.background='transparent';
-                  }}
+                  onMouseEnter={e => { if (selected?.id !== a.id) e.currentTarget.style.background='rgba(0,245,255,0.02)'; }}
+                  onMouseLeave={e => { if (selected?.id !== a.id) e.currentTarget.style.background='transparent'; }}
                 >
                   <td style={{ padding:'9px 14px', color:T.cyan }}>{a.ip}</td>
                   <td style={{ padding:'9px 14px', color:T.text }}>
@@ -507,12 +497,11 @@ export default function GeoPage() {
                   </td>
                   <td style={{ padding:'9px 14px', color:T.muted }}>{a.type}</td>
                   <td style={{ padding:'9px 14px' }}><SevBadge sev={a.severity} /></td>
-                  <td style={{ padding:'9px 14px', color:T.text,
-                    fontVariantNumeric:'tabular-nums', fontWeight:700 }}>{a.count}</td>
+                  <td style={{ padding:'9px 14px', color:T.text, fontVariantNumeric:'tabular-nums', fontWeight:700 }}>{a.count}</td>
                   <td style={{ padding:'9px 14px', fontSize:'10px', display:'flex', gap:'4px', alignItems:'center' }}>
-                    {a.isTor    && <span style={{ color:T.red,   fontWeight:700 }}>TOR</span>}
-                    {a.isProxy  && <span style={{ color:T.orange,fontWeight:700 }}>PROXY</span>}
-                    {a.lat!=null && <span style={{ color:T.green }}>●</span>}
+                    {a.isTor    && <span style={{ color:T.red,    fontWeight:700 }}>TOR</span>}
+                    {a.isProxy  && <span style={{ color:T.orange, fontWeight:700 }}>PROXY</span>}
+                    {a.lat != null && <span style={{ color:T.green }} title="Geo-located">●</span>}
                   </td>
                 </tr>
               ))}
@@ -565,8 +554,8 @@ export default function GeoPage() {
       )}
 
       <style>{`
-        @keyframes shimmer { 0%,100%{opacity:.4} 50%{opacity:.9} }
-        @keyframes slideUp { from{opacity:0;transform:translateY(6px)} to{opacity:1;transform:none} }
+        @keyframes shimmer  { 0%,100%{opacity:.4} 50%{opacity:.9} }
+        @keyframes slideUp  { from{opacity:0;transform:translateY(6px)} to{opacity:1;transform:none} }
       `}</style>
     </div>
   );
