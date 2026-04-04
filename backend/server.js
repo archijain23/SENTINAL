@@ -90,7 +90,8 @@ app.use('/api/audit',          require('./src/routes/audit'));
 app.use('/api/nexus',          require('./src/routes/nexus'));
 app.use('/api/gemini',         require('./src/routes/gemini'));
 app.use('/api/blocklist',      require('./src/routes/blocklist'));
-app.use('/api/geo',            require('./src/routes/geoIntel'));   // ← NEW: Geo-IP Threat Intelligence
+app.use('/api/geo',            require('./src/routes/geoIntel'));
+app.use('/api/settings',       require('./src/routes/settings'));  // ← Settings
 
 // 404 Handler
 app.use((req, res) => {
