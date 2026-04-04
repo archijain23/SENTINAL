@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 # =============================================================================
-# SENTINAL — deploy.sh  v5.0
+# SENTINAL — deploy.sh  v6.0
 # Production deployment for archijain23/SENTINAL
 # Cloud-agnostic: Vultr / AWS EC2 / DigitalOcean / Any Ubuntu 22.04 VM
 # =============================================================================
@@ -9,7 +9,7 @@
 # Usage (re-deploy):
 #   bash deploy.sh
 #
-# FIXES IN v5.0 vs v4.1:
+# FIXES IN v6.0 vs v5.0:
 #   [FIX-1] serve resolved to absolute path at ecosystem generation time
 #           → prevents "serve not found" when PM2 runs under minimal PATH
 #   [FIX-2] PM2 reload falls back to full delete+start when reload fails
@@ -28,6 +28,16 @@
 #           → prevents "ModuleNotFoundError: No module named 'app'" at uvicorn start
 #   [FIX-9] All Python services tested for clean import before PM2 start
 #           → catches import errors at deploy time, not at health-check time
+#
+#   NEW in v6.0:
+#   [FIX-10] serve CLI flag fixed: --listen → -l (deprecated in serve v14+)
+#            → prevents dashboard binding to wrong port or failing to start
+#   [FIX-11] Swap file created if available RAM < 1024MB before Vite build
+#            → prevents OOM-kill during npm run build on small instances
+#   [FIX-12] pcap pre-flight import extended to include scapy + pyshark
+#            → catches missing tshark/scapy before PM2 start, not after
+#   [FIX-13] PATH set explicitly in pcap-processor ecosystem env block
+#            → ensures tshark is findable by pyshark in PM2's sanitized PATH
 # =============================================================================
 
 set -euo pipefail
@@ -62,7 +72,7 @@ trap 'err "Deploy FAILED on line $LINENO — check $DEPLOY_LOG"; exit 1' ERR
 # ── Banner ────────────────────────────────────────────────────────────────────
 echo ""
 echo -e "${BOLD}${GREEN}╔══════════════════════════════════════════════════════════╗${NC}"
-echo -e "${BOLD}${GREEN}║          SENTINAL — Production Deploy  v5.0             ║${NC}"
+echo -e "${BOLD}${GREEN}║          SENTINAL — Production Deploy  v6.0             ║${NC}"
 echo -e "${BOLD}${GREEN}║      Vultr · AWS EC2 · DigitalOcean · Ubuntu 22.04      ║${NC}"
 echo -e "${BOLD}${GREEN}╚══════════════════════════════════════════════════════════╝${NC}"
 echo ""
@@ -179,6 +189,7 @@ cd "$REPO_DIR"
 section "STEP 3: Python virtual environments"
 
 # FIX-8: Ensure detection-engine app/__init__.py exists
+# (also committed to git in v6.0 so git reset does not remove it)
 INIT_FILE="$REPO_DIR/services/detection-engine/app/__init__.py"
 if [[ ! -f "$INIT_FILE" ]]; then
   touch "$INIT_FILE"
@@ -186,6 +197,7 @@ if [[ ! -f "$INIT_FILE" ]]; then
 fi
 
 # FIX-3: Auto-fix detection-engine requirements.txt if it is the stub version
+# In v6.0 the real requirements.txt is committed, so this is a safety net only.
 DETECT_REQS="$REPO_DIR/services/detection-engine/requirements.txt"
 DETECT_REQS_FULL="$REPO_DIR/services/detection-engine/requirements copy.txt"
 if [[ -f "$DETECT_REQS" ]]; then
@@ -232,7 +244,7 @@ setup_venv "services/detection-engine" "Detection Engine"
 setup_venv "services/pcap-processor"   "PCAP Processor"
 setup_venv "services/nexus-agent"      "Nexus Agent"
 
-# ── FIX-9: Pre-flight Python import test ──────────────────────────────────────
+# ── FIX-9 / FIX-12: Pre-flight Python import test ─────────────────────────────
 section "STEP 3b: Python import validation"
 
 test_python_import() {
@@ -251,18 +263,23 @@ test_python_import() {
   log "$svc_label imports OK"
 }
 
+# Detection Engine: includes ML packages (FIX-9)
 test_python_import \
   "services/detection-engine" \
   "Detection Engine" \
   "import fastapi, uvicorn, sklearn, xgboost, joblib; print('ok')" || \
   warn "Detection Engine import failed — check requirements.txt (FIX-3)"
 
+# PCAP Processor: includes scapy + pyshark (FIX-12)
+# Note: pyshark checks for tshark at import time; failure here means tshark
+# is not installed or not in PATH — fix: sudo apt-get install -y tshark
 test_python_import \
   "services/pcap-processor" \
   "PCAP Processor" \
-  "import fastapi, uvicorn; print('ok')" || \
-  warn "PCAP Processor import failed — check requirements.txt"
+  "import fastapi, uvicorn, scapy, pyshark; print('ok')" || \
+  warn "PCAP Processor import failed — ensure tshark is installed (apt install tshark)"
 
+# Nexus Agent
 test_python_import \
   "services/nexus-agent" \
   "Nexus Agent" \
@@ -418,6 +435,39 @@ fi
 log ".env configuration complete"
 
 # =============================================================================
+# PRE-BUILD: Ensure sufficient RAM for Vite build (FIX-11)
+# Heavy frontend (Three.js + GSAP + Chart.js) can OOM-kill npm run build
+# on Vultr/DO instances with ≤1GB RAM. Create a 2GB swapfile if needed.
+# =============================================================================
+section "PRE-BUILD: RAM check for Vite build"
+
+AVAIL_RAM_MB=$(free -m | awk '/^Mem:/{print $7}')
+info "Available RAM: ${AVAIL_RAM_MB}MB"
+
+if [[ "$AVAIL_RAM_MB" -lt 1024 ]]; then
+  if swapon --show | grep -q '/swapfile' 2>/dev/null; then
+    info "Swapfile already active — skipping creation"
+  else
+    info "Low RAM detected (${AVAIL_RAM_MB}MB) — creating 2GB swapfile to prevent OOM during build (FIX-11)..."
+    if sudo fallocate -l 2G /swapfile 2>/dev/null; then
+      : # fallocate succeeded
+    elif sudo dd if=/dev/zero of=/swapfile bs=1M count=2048 status=none; then
+      : # dd fallback succeeded
+    else
+      warn "Could not create swapfile — build may OOM on low-RAM instances"
+    fi
+    if [[ -f /swapfile ]]; then
+      sudo chmod 600 /swapfile
+      sudo mkswap /swapfile >/dev/null 2>&1
+      sudo swapon /swapfile
+      log "Swapfile (2GB) active — build memory protected"
+    fi
+  fi
+else
+  log "RAM sufficient (${AVAIL_RAM_MB}MB available) — no swapfile needed"
+fi
+
+# =============================================================================
 # STEP 6 — BUILD REACT FRONTEND
 # =============================================================================
 section "STEP 6: Building React frontend (Vite)"
@@ -438,6 +488,8 @@ npm run build 2>&1 | tee -a "$DEPLOY_LOG"
 
 [[ ! -f "$FRONTEND_DIST/index.html" ]] && {
   err "Vite build failed — $FRONTEND_DIST/index.html not found!"
+  err "If this was an out-of-memory error, check: dmesg | grep -i 'oom\|killed'"
+  err "Re-run deploy.sh — the swapfile will be created on the second attempt."
   exit 1
 }
 log "Frontend build verified → $FRONTEND_DIST"
@@ -454,12 +506,14 @@ log "Logs directory: $LOGS_DIR"
 # =============================================================================
 section "STEP 8: Generating PM2 ecosystem.config.js"
 
-# SERVE_BIN and FRONTEND_DIST are already resolved above as absolute paths
-# This heredoc is unquoted so bash expands the variables at write time
+# SERVE_BIN and FRONTEND_DIST are already resolved above as absolute paths.
+# FIX-10: Use -l (--port) instead of --listen which was deprecated in serve v14+.
+#         Use -s instead of --single for SPA mode (works across all versions).
+# This heredoc is unquoted so bash expands the variables at write time.
 
 cat > "$REPO_DIR/ecosystem.config.js" <<JSEOF
 'use strict';
-// Auto-generated by deploy.sh v5.0 on $(date '+%Y-%m-%d %H:%M:%S')
+// Auto-generated by deploy.sh v6.0 on $(date '+%Y-%m-%d %H:%M:%S')
 // DO NOT EDIT MANUALLY — re-run deploy.sh to regenerate
 const path = require('path');
 const root  = __dirname;
@@ -519,6 +573,8 @@ module.exports = {
     },
 
     // ── PCAP Processor (Python / FastAPI) ─────────────────────────
+    // FIX-13: PATH set explicitly so tshark is found by pyshark
+    //         under PM2's sanitized environment.
     {
       name:          'sentinal-pcap',
       script:        path.join(root, 'services', 'pcap-processor', '.venv', 'bin', 'python3'),
@@ -536,6 +592,7 @@ module.exports = {
       env: {
         PYTHONUNBUFFERED:        '1',
         PYTHONDONTWRITEBYTECODE: '1',
+        PATH:                    '/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin',
       },
       env_file:        path.join(root, '.env'),
       out_file:        path.join(root, 'logs', 'pcap.out.log'),
@@ -571,11 +628,13 @@ module.exports = {
     },
 
     // ── React Dashboard (Vite build via serve) ────────────────────
-    // FIX-1: Absolute path to serve binary resolved at deploy time
+    // FIX-1:  Absolute path to serve binary resolved at deploy time
+    // FIX-10: -l replaces deprecated --listen (serve v14+)
+    //         -s replaces --single for SPA fallback routing
     {
       name:          'sentinal-dashboard',
       script:        '${SERVE_BIN}',
-      args:          '${FRONTEND_DIST} --listen 5173 --single --no-clipboard',
+      args:          '-s ${FRONTEND_DIST} -l 5173 --no-clipboard',
       cwd:           root,
       interpreter:   'none',
       instances:     1,
@@ -604,7 +663,6 @@ section "STEP 9: Starting services with PM2"
 cd "$REPO_DIR"
 
 # FIX-6: Remove errored/stopped processes before reload to clear stale PIDs
-# These are the processes that cause the "pidusage: pids invalid" spam
 ERRORED_PROCS=$(pm2 list 2>/dev/null | grep -E "errored|stopped" | awk '{print $4}' | grep -v "^$" || true)
 if [[ -n "$ERRORED_PROCS" ]]; then
   info "Removing stale errored processes from PM2 table (FIX-6)..."
@@ -625,7 +683,6 @@ if [[ "$PM2_HAS_GATEWAY" == "true" ]]; then
 
   if [[ "$RELOAD_OK" == "true" ]]; then
     sleep 4
-    # Verify no new errored processes after reload
     POST_RELOAD_ERRORED=$(pm2 list 2>/dev/null | grep "sentinal" | grep "errored" | awk '{print $4}' | grep -v "^$" || true)
     if [[ -n "$POST_RELOAD_ERRORED" ]]; then
       warn "Services errored after reload — falling back to fresh start (FIX-2)..."
@@ -751,7 +808,7 @@ pm2 list 2>/dev/null | grep -q "pm2-logrotate" || {
 # =============================================================================
 echo ""
 echo -e "${BOLD}${GREEN}╔══════════════════════════════════════════════════════════╗${NC}"
-echo -e "${BOLD}${GREEN}║            SENTINAL DEPLOYMENT COMPLETE  v5.0           ║${NC}"
+echo -e "${BOLD}${GREEN}║            SENTINAL DEPLOYMENT COMPLETE  v6.0           ║${NC}"
 echo -e "${BOLD}${GREEN}╚══════════════════════════════════════════════════════════╝${NC}"
 echo ""
 echo -e "  ${BOLD}Frontend Dashboard:${NC}   http://${PUBLIC_IP}:5173"

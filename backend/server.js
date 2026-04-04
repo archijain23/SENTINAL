@@ -67,12 +67,19 @@ if (process.env.NODE_ENV !== 'test') {
 }
 
 // ── Root health check ──────────────────────────────────────────────────────────
+// FIX-5: Returns HTTP 503 when MongoDB is disconnected so deploy health check
+//         correctly detects a broken gateway rather than silently returning 200.
 app.get('/health', (req, res) => {
-  res.status(200).json({
-    status:  'ok',
-    service: 'gateway',
-    uptime:  Math.floor(process.uptime()),
-    port:    parseInt(process.env.GATEWAY_PORT || '3000')
+  const dbState  = mongoose.connection.readyState; // 1 = connected
+  const dbStatus = dbState === 1 ? 'connected' : 'disconnected';
+  const httpCode = dbState === 1 ? 200 : 503;
+  res.status(httpCode).json({
+    status:      dbState === 1 ? 'ok' : 'degraded',
+    service:     'gateway',
+    db:          dbStatus,
+    uptime:      Math.floor(process.uptime()),
+    port:        parseInt(process.env.GATEWAY_PORT || '3000'),
+    environment: process.env.NODE_ENV || 'development',
   });
 });
 
@@ -91,7 +98,7 @@ app.use('/api/nexus',          require('./src/routes/nexus'));
 app.use('/api/gemini',         require('./src/routes/gemini'));
 app.use('/api/blocklist',      require('./src/routes/blocklist'));
 app.use('/api/geo',            require('./src/routes/geoIntel'));
-app.use('/api/settings',       require('./src/routes/settings'));  // ← Settings
+app.use('/api/settings',       require('./src/routes/settings'));
 
 // 404 Handler
 app.use((req, res) => {
