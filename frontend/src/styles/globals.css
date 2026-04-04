@@ -1,97 +1,184 @@
-/* SENTINAL — Global Styles
-   Dark cyberpunk theme. All pages share these base rules.
-*/
+/* =============================================================
+   SENTINAL — Global Stylesheet
+   ORDER MATTERS:
+   1. @import (must be first)
+   2. @tailwind directives
+   3. Custom base / components / utilities
+   ============================================================= */
 
-@import url('https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@300;400;500;700&family=Inter:wght@300;400;500;600;700&display=swap');
+/* ── 1. Font imports (must be before @tailwind) ──────────────── */
+@import url('https://fonts.googleapis.com/css2?family=Orbitron:wght@400;500;600;700;800;900&family=Share+Tech+Mono&family=JetBrains+Mono:wght@300;400;500;700&family=Inter:wght@300;400;500;600;700&display=swap');
 
-*, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+/* ── 2. Tailwind directives (REQUIRED — without these nothing works) */
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
 
-html {
-  -webkit-font-smoothing: antialiased;
-  -moz-osx-font-smoothing: grayscale;
-  text-rendering: optimizeLegibility;
-  scroll-behavior: smooth;
-}
-
-body {
-  min-height: 100dvh;
-  background: #0B0F19;
-  color: #E2E8F0;
-  font-family: 'Inter', system-ui, sans-serif;
-  line-height: 1.6;
-}
-
-/* Font utilities */
-.font-display { font-family: 'Inter', system-ui, sans-serif; }
-.font-mono    { font-family: 'JetBrains Mono', 'Fira Code', monospace; }
-
-/* Cyber grid background utility */
-.cyber-grid {
-  background-image:
-    linear-gradient(rgba(0,245,255,0.04) 1px, transparent 1px),
-    linear-gradient(90deg, rgba(0,245,255,0.04) 1px, transparent 1px);
-  background-size: 40px 40px;
-}
-
-/* Glass panel utility */
-.glass-panel {
-  background: rgba(13, 17, 23, 0.85);
-  border: 1px solid rgba(0, 245, 255, 0.1);
-  border-radius: 12px;
-  backdrop-filter: blur(12px);
-  -webkit-backdrop-filter: blur(12px);
-}
-
-/* Cyber blue colour token */
-.text-cyber-blue { color: #00F5FF; }
-
-/* Scrollbar */
-::-webkit-scrollbar              { width: 6px; height: 6px; }
-::-webkit-scrollbar-track        { background: transparent; }
-::-webkit-scrollbar-thumb        { background: rgba(0,245,255,0.15); border-radius: 3px; }
-::-webkit-scrollbar-thumb:hover  { background: rgba(0,245,255,0.3); }
-
-/* Selection */
-::selection { background: rgba(0,245,255,0.2); color: #fff; }
-
-/* Focus ring */
-:focus-visible {
-  outline: 2px solid rgba(0,245,255,0.5);
-  outline-offset: 2px;
-  border-radius: 4px;
-}
-
-/* Screen-reader only */
-.sr-only {
-  position: absolute; width: 1px; height: 1px; padding: 0;
-  margin: -1px; overflow: hidden; clip: rect(0,0,0,0);
-  white-space: nowrap; border-width: 0;
-}
-
-/* Animations */
-@keyframes pulse {
-  0%, 100% { opacity: 1; transform: scale(1); }
-  50%       { opacity: 0.4; transform: scale(0.85); }
-}
-
-@keyframes livePulse {
-  0%, 100% { opacity: 1; box-shadow: 0 0 6px currentColor; }
-  50%       { opacity: 0.5; box-shadow: 0 0 2px currentColor; }
-}
-
-@keyframes fadeSlideIn {
-  from { opacity: 0; transform: translateY(-6px); }
-  to   { opacity: 1; transform: translateY(0); }
-}
-
-@keyframes spin {
-  to { transform: rotate(360deg); }
-}
-
-/* Reduced motion */
-@media (prefers-reduced-motion: reduce) {
+/* ── 3. Base resets & global rules ──────────────────────────── */
+@layer base {
   *, *::before, *::after {
-    animation-duration: 0.01ms !important;
-    transition-duration: 0.01ms !important;
+    box-sizing: border-box;
+    margin: 0;
+    padding: 0;
+  }
+
+  html {
+    -webkit-font-smoothing: antialiased;
+    -moz-osx-font-smoothing: grayscale;
+    text-rendering: optimizeLegibility;
+    scroll-behavior: smooth;
+  }
+
+  body {
+    min-height: 100dvh;
+    background-color: #0B0F19;
+    color: #E2E8F0;
+    font-family: 'Inter', system-ui, sans-serif;
+    line-height: 1.6;
+  }
+
+  img, picture, video, canvas, svg {
+    display: block;
+    max-width: 100%;
+    height: auto;
+  }
+
+  input, button, textarea, select {
+    font: inherit;
+    color: inherit;
+  }
+
+  button { cursor: pointer; }
+
+  table { border-collapse: collapse; width: 100%; }
+
+  ::selection {
+    background: rgba(0, 245, 255, 0.2);
+    color: #fff;
+  }
+
+  :focus-visible {
+    outline: 2px solid rgba(0, 245, 255, 0.5);
+    outline-offset: 2px;
+    border-radius: 4px;
+  }
+
+  /* Scrollbar */
+  ::-webkit-scrollbar              { width: 6px; height: 6px; }
+  ::-webkit-scrollbar-track        { background: transparent; }
+  ::-webkit-scrollbar-thumb        { background: rgba(0,245,255,0.15); border-radius: 3px; }
+  ::-webkit-scrollbar-thumb:hover  { background: rgba(0,245,255,0.3); }
+
+  @media (prefers-reduced-motion: reduce) {
+    *, *::before, *::after {
+      animation-duration: 0.01ms !important;
+      animation-iteration-count: 1 !important;
+      transition-duration: 0.01ms !important;
+      scroll-behavior: auto !important;
+    }
+  }
+}
+
+/* ── 4. Reusable component classes ──────────────────────────── */
+@layer components {
+
+  /* Glass panel — used across all pages */
+  .glass-panel {
+    background: rgba(13, 17, 23, 0.85);
+    border: 1px solid rgba(0, 245, 255, 0.1);
+    border-radius: 12px;
+    backdrop-filter: blur(12px);
+    -webkit-backdrop-filter: blur(12px);
+  }
+
+  /* Cyber grid background */
+  .cyber-grid {
+    background-image:
+      linear-gradient(rgba(0,245,255,0.04) 1px, transparent 1px),
+      linear-gradient(90deg, rgba(0,245,255,0.04) 1px, transparent 1px);
+    background-size: 40px 40px;
+  }
+
+  /* Screen-reader only */
+  .sr-only {
+    position: absolute;
+    width: 1px;
+    height: 1px;
+    padding: 0;
+    margin: -1px;
+    overflow: hidden;
+    clip: rect(0,0,0,0);
+    white-space: nowrap;
+    border-width: 0;
+  }
+
+  /* Skeleton shimmer loader */
+  .skeleton {
+    background: linear-gradient(
+      90deg,
+      rgba(0,245,255,0.04) 25%,
+      rgba(0,245,255,0.08) 50%,
+      rgba(0,245,255,0.04) 75%
+    );
+    background-size: 200% 100%;
+    animation: shimmer 1.5s ease-in-out infinite;
+    border-radius: 4px;
+  }
+}
+
+/* ── 5. Custom keyframe animations ──────────────────────────── */
+@layer utilities {
+  @keyframes pulse {
+    0%, 100% { opacity: 1; transform: scale(1); }
+    50%       { opacity: 0.4; transform: scale(0.85); }
+  }
+
+  @keyframes livePulse {
+    0%, 100% { opacity: 1; box-shadow: 0 0 6px currentColor; }
+    50%       { opacity: 0.5; box-shadow: 0 0 2px currentColor; }
+  }
+
+  @keyframes fadeSlideIn {
+    from { opacity: 0; transform: translateY(-6px); }
+    to   { opacity: 1; transform: translateY(0); }
+  }
+
+  @keyframes shimmer {
+    0%   { background-position: -200% 0; }
+    100% { background-position:  200% 0; }
+  }
+
+  @keyframes scan {
+    0%   { transform: translateY(-100%); }
+    100% { transform: translateY(100%); }
+  }
+
+  @keyframes glow {
+    0%   { box-shadow: 0 0 5px rgba(0,245,255,0.3), 0 0 10px rgba(0,245,255,0.1); }
+    100% { box-shadow: 0 0 20px rgba(0,245,255,0.6), 0 0 40px rgba(0,245,255,0.2); }
+  }
+
+  @keyframes float {
+    0%, 100% { transform: translateY(0px); }
+    50%       { transform: translateY(-12px); }
+  }
+
+  @keyframes radar {
+    0%   { transform: rotate(0deg); }
+    100% { transform: rotate(360deg); }
+  }
+
+  @keyframes alertPulse {
+    0%   { transform: scale(1); opacity: 1; }
+    100% { transform: scale(2); opacity: 0; }
+  }
+
+  @keyframes fadeInUp {
+    0%   { opacity: 0; transform: translateY(20px); }
+    100% { opacity: 1; transform: translateY(0); }
+  }
+
+  @keyframes spin {
+    to { transform: rotate(360deg); }
   }
 }
