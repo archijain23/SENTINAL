@@ -1,9 +1,13 @@
+import { useState, useEffect, useRef } from 'react';
 import KpiCard from '../components/app/KpiCard';
+import ThreatStream from '../components/app/ThreatStream';
+import ServiceHealthStrip from '../components/app/ServiceHealthStrip';
 
 export default function DashboardPage() {
   return (
-    <div className="space-y-6">
-      {/* KPI Row */}
+    <div className="space-y-5">
+
+      {/* ── KPI Row ── */}
       <div className="grid grid-cols-2 xl:grid-cols-4 gap-4">
         <KpiCard
           label="Total Threats Today"
@@ -59,16 +63,30 @@ export default function DashboardPage() {
         />
       </div>
 
-      {/* Placeholder for next increment — threat stream + chart */}
-      <div
-        className="rounded-lg p-6 flex items-center justify-center"
-        style={{ border: '1px dashed rgba(0,245,255,0.1)', minHeight: '320px' }}
-      >
-        <div className="text-center">
-          <p className="text-[10px] font-mono tracking-widest uppercase mb-2" style={{ color: '#3D4663' }}>NEXT INCREMENT</p>
-          <p className="text-xs font-mono" style={{ color: '#6B7894' }}>Live threat event stream + attack-type donut chart</p>
+      {/* ── Main content: Threat Stream (left) + Attack Breakdown placeholder (right) ── */}
+      <div className="grid grid-cols-1 xl:grid-cols-5 gap-4">
+        {/* Threat event stream — 60% */}
+        <div className="xl:col-span-3">
+          <ThreatStream />
+        </div>
+
+        {/* Attack breakdown chart — placeholder for next increment */}
+        <div
+          className="xl:col-span-2 rounded-lg flex flex-col items-center justify-center"
+          style={{ background: '#0D1117', border: '1px solid rgba(0,245,255,0.08)', minHeight: '420px' }}
+        >
+          <svg width="32" height="32" viewBox="0 0 24 24" fill="none" stroke="rgba(0,245,255,0.2)" strokeWidth="1" className="mb-3">
+            <circle cx="12" cy="12" r="10"/>
+            <path d="M12 2a10 10 0 0 1 10 10"/>
+          </svg>
+          <p className="text-[9px] font-mono tracking-widest uppercase" style={{ color: '#3D4663' }}>ATTACK BREAKDOWN</p>
+          <p className="text-[9px] font-mono mt-1" style={{ color: '#3D4663' }}>Donut chart — next increment</p>
         </div>
       </div>
+
+      {/* ── Service Health Strip ── */}
+      <ServiceHealthStrip />
+
     </div>
   );
 }
