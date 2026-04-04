@@ -10,6 +10,7 @@ import LoginPage   from './pages/LoginPage';
 // App pages (lazy)
 const DashboardPage   = lazy(() => import('./pages/DashboardPage'));
 const ThreatsPage     = lazy(() => import('./pages/ThreatsPage'));
+const ForensicsPage   = lazy(() => import('./pages/ForensicsPage'));
 const PcapPage        = lazy(() => import('./pages/PcapPage'));
 const BlocklistPage   = lazy(() => import('./pages/BlocklistPage'));
 const NexusPage       = lazy(() => import('./pages/NexusPage'));
@@ -18,7 +19,6 @@ const AlertsPage      = lazy(() => import('./pages/AlertsPage'));
 const LogsPage        = lazy(() => import('./pages/LogsPage'));
 const ServicesPage    = lazy(() => import('./pages/ServicesPage'));
 const AuditPage       = lazy(() => import('./pages/AuditPage'));
-const ForensicsPage   = lazy(() => import('./pages/ForensicsPage'));
 const SimulatePage    = lazy(() => import('./pages/SimulatePage'));
 const CopilotPage     = lazy(() => import('./pages/CopilotPage'));
 const CorrelationPage = lazy(() => import('./pages/CorrelationPage'));
@@ -42,7 +42,11 @@ function PageLoader() {
   );
 }
 
-const W = (Page) => <Suspense fallback={<PageLoader />}><Page /></Suspense>;
+const W = (Page) => (
+  <ProtectedRoute>
+    <Suspense fallback={<PageLoader />}><Page /></Suspense>
+  </ProtectedRoute>
+);
 
 const router = createBrowserRouter([
   // Public
@@ -52,7 +56,11 @@ const router = createBrowserRouter([
   // Protected app shell
   {
     path: '/app',
-    element: <AppShell />,
+    element: (
+      <ProtectedRoute>
+        <AppShell />
+      </ProtectedRoute>
+    ),
     children: [
       { index: true,              element: <Navigate to="/app/dashboard" replace /> },
       { path: 'dashboard',        element: W(DashboardPage) },
