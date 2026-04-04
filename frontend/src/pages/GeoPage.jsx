@@ -49,7 +49,6 @@ function normalise(raw) {
     ip:       raw.ip ?? raw.srcIP ?? '0.0.0.0',
     country:  raw.country   ?? geo.country   ?? 'Unknown',
     city:     raw.city      ?? geo.city      ?? null,
-    // /threats: flattened lat/lng; socket push: nested under geoIntel
     lat:      raw.latitude  ?? geo.latitude  ?? raw.lat ?? null,
     lng:      raw.longitude ?? geo.longitude ?? raw.lng ?? null,
     type:     raw.attackType ?? raw.type ?? 'Unknown',
@@ -159,29 +158,42 @@ function GlobeScene({ attacks, onHover, onSelect, hovered }) {
     const pts = [];
     for (let lng = 0; lng <= 360; lng += 3) pts.push(latLngToVec3(lat, lng - 180, 1.001));
     const g = new THREE.BufferGeometry().setFromPoints(pts);
-    gridLines.push(<line key={`lat${lat}`} geometry={g}><lineBasicMaterial color={0x1a2a3a} transparent opacity={0.6} /></line>);
+    gridLines.push(<line key={`lat${lat}`} geometry={g}><lineBasicMaterial color={0x1e3a5a} transparent opacity={0.7} /></line>);
   }
   for (let lng = 0; lng < 360; lng += 30) {
     const pts = [];
     for (let lat = -90; lat <= 90; lat += 3) pts.push(latLngToVec3(lat, lng - 180, 1.001));
     const g = new THREE.BufferGeometry().setFromPoints(pts);
-    gridLines.push(<line key={`lng${lng}`} geometry={g}><lineBasicMaterial color={0x1a2a3a} transparent opacity={0.6} /></line>);
+    gridLines.push(<line key={`lng${lng}`} geometry={g}><lineBasicMaterial color={0x1e3a5a} transparent opacity={0.7} /></line>);
   }
 
   return (
     <>
-      <ambientLight intensity={0.3} />
-      <pointLight position={[4, 4, 4]}   intensity={1.2} color={0x00f5ff} />
-      <pointLight position={[-4, -2, -4]} intensity={0.4} color={0xff3d71} />
+      {/* Stronger ambient so the dark sphere surface is never pure black */}
+      <ambientLight intensity={0.8} />
+      {/* Main cyan key light — boosted for specular highlight on the sphere */}
+      <pointLight position={[4, 4, 4]}    intensity={2.0} color={0x00f5ff} />
+      {/* Red-pink fill from behind */}
+      <pointLight position={[-4, -2, -4]} intensity={0.6} color={0xff3d71} />
+      {/* Soft warm back-fill so the night side stays slightly visible */}
+      <pointLight position={[0, -4, -2]}  intensity={0.3} color={0x223355} />
 
-      {/* Globe core */}
+      {/* Globe core — meshPhongMaterial responds well to low-intensity lights;
+          emissive ensures the unlit side is never indistinguishable from the bg */}
       <Sphere args={[1, 64, 64]}>
-        <meshStandardMaterial color={0x050d15} metalness={0.1} roughness={0.8} transparent opacity={0.95} />
+        <meshPhongMaterial
+          color={0x0a1628}
+          emissive={0x071020}
+          emissiveIntensity={1}
+          shininess={18}
+          transparent
+          opacity={0.97}
+        />
       </Sphere>
 
-      {/* Atmosphere glow */}
+      {/* Atmosphere glow — stronger edge halo so the sphere silhouette reads clearly */}
       <Sphere args={[1.04, 32, 32]}>
-        <meshBasicMaterial color={0x003344} transparent opacity={0.08} side={THREE.BackSide} />
+        <meshBasicMaterial color={0x004466} transparent opacity={0.18} side={THREE.BackSide} />
       </Sphere>
 
       {gridLines}
@@ -265,7 +277,6 @@ export default function GeoPage() {
 
   /* ─ Real-time socket ─────────────────────────────────────────────────── */
   useEffect(() => {
-    // getSocket() — re-uses singleton, never disconnects/reconnects the shared socket
     const socket  = getSocket();
 
     const handler = event => {
@@ -274,14 +285,12 @@ export default function GeoPage() {
       setAttacks(prev => {
         const idx = prev.findIndex(a => a.ip === item.ip);
         if (idx !== -1) {
-          // Update existing entry: bump count, refresh severity + geo if new data arrived
           const next = [...prev];
           next[idx] = {
             ...next[idx],
             count:    next[idx].count + 1,
             severity: item.severity,
             type:     item.type,
-            // Upgrade geo coords if the new event has them and the old one didn't
             lat: next[idx].lat ?? item.lat,
             lng: next[idx].lng ?? item.lng,
             country: next[idx].country !== 'Unknown' ? next[idx].country : item.country,
@@ -296,7 +305,6 @@ export default function GeoPage() {
     socket.on(SOCKET_EVENTS.NEW_ATTACK, handler);
     socket.on('geo:event',              handler);
 
-    // Only remove listeners — never disconnect the singleton
     return () => {
       socket.off(SOCKET_EVENTS.NEW_ATTACK, handler);
       socket.off('geo:event',              handler);
