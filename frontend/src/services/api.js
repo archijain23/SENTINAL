@@ -90,7 +90,13 @@ export const runSimulation      = (payload)     => http.post('/api/simulate', pa
 /* Correlation */
 export const getCorrelations    = ()            => http.get('/api/correlation').then(unwrap);
 
-/* Gemini AI */
+/* Gemini AI
+   geminiCorrelate: Gemini rate-limit retry can take up to 65s (59s delay + overhead).
+   The default 15s axios timeout fires before the retry completes, causing a false
+   "timeout" error on the frontend even when the backend succeeds.
+   Fix: give correlate its own 150s timeout — well above the worst-case 65s retry window.
+   All other endpoints keep the 15s default.
+*/
 export const geminiChat = (message, history = []) =>
   http.post('/api/gemini/chat', { message, history }).then(unwrap);
 
@@ -108,10 +114,13 @@ export const geminiReport = (attackId, reportType = 'technical') =>
 export const geminiReportExportUrl = (attackId, reportType = 'technical') =>
   `${BASE}/api/gemini/report/${attackId}/export?reportType=${reportType}`;
 
-export const geminiCorrelate        = ()        => http.post('/api/gemini/correlate').then(unwrap);
+// 150s timeout: Gemini rate-limit retry window is up to ~65s; 15s default kills it too early
+export const geminiCorrelate = () =>
+  http.post('/api/gemini/correlate', {}, { timeout: 150_000 }).then(unwrap);
+
 export const geminiCorrelateHistory = ()        => http.get('/api/gemini/correlate/history').then(unwrap);
 export const geminiMutate = (payload, attackType = 'unknown') =>
-  http.post('/api/gemini/mutate', { payload, attackType }).then(unwrap);
+  http.post('/api/gemini/mutate', { payload, attackType }, { timeout: 90_000 }).then(unwrap);
 
 export const BASE_URL = BASE;
 

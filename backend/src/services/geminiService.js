@@ -2,30 +2,19 @@
  * geminiService.js — SENTINAL Gemini AI integration
  *
  * Verified free-tier model chain (April 2026):
- *   1. gemini-2.0-flash   — stable GA, 15 RPM, 1500 RPD — primary
- *   2. gemini-1.5-flash   — stable GA, 15 RPM,  500 RPD — fallback if 2.0 exhausted
+ *   1. gemini-2.0-flash        — stable GA, 15 RPM, 1500 RPD — primary
+ *   2. gemini-2.0-flash-lite   — stable GA, higher RPM quota  — fallback #1
+ *   3. gemini-1.5-flash-latest — stable GA (latest alias)     — fallback #2
+ *
+ * NOTE: gemini-1.5-flash (without -latest) returned 404 in April 2026.
+ *       Always use the -latest alias for 1.5-series models.
  *
  * Capabilities:
- *   1. chat()           — Security Co-Pilot Q&A grounded in live attack telemetry (+ history + suggestions + citations)
- *   2. chatStream()     — Streaming version of chat() using generateContentStream
- *   3. generateReport() — Structured incident report for a single attack (+ reportType template)
+ *   1. chat()           — Security Co-Pilot Q&A grounded in live attack telemetry
+ *   2. chatStream()     — Streaming version of chat()
+ *   3. generateReport() — Structured incident report for a single attack
  *   4. correlate()      — Campaign correlation across up to 200 recent attacks
- *   5. mutate()         — Payload evasion variant generator (5 WAF-bypass mutations + scoring)
- *
- * FIXES APPLIED (v2):
- *   FIX-A: Models now initialised with generationConfig (temperature=0.2, topP=0.8, maxOutputTokens=1024)
- *          so responses are deterministic and factual instead of random/creative.
- *   FIX-B: generateWithFallback() and generateStreamWithFallback() now accept a structured
- *          { systemInstruction, contents } object instead of a flat string, using the Gemini
- *          SDK's dedicated system-instruction slot for the persona + platform knowledge.
- *   FIX-C: chat() / chatStream() build history as proper SDK role/parts turns instead of
- *          serialising everything into one flat text block — fixes multi-turn context drift.
- *   FIX-D: PLATFORM_KNOWLEDGE is only injected when the question involves navigation/UI actions;
- *          pure data questions get a lean system prompt, keeping attention on telemetry.
- *   FIX-E: buildAttackContext() payload slice raised 80 → 200 chars with ellipsis indicator.
- *   FIX-F: Word limit is now dynamic: 600 for analytical questions, 300 for simple data queries.
- *   FIX-G: Metadata stripping now slices at the first SUGGESTIONS:/SOURCES: line boundary
- *          instead of fragile regex replace — eliminates leaking metadata into UI answers.
+ *   5. mutate()         — Payload evasion variant generator
  */
 
 'use strict';
@@ -33,16 +22,17 @@
 const { GoogleGenerativeAI } = require('@google/generative-ai');
 const logger = require('../utils/logger');
 
-// ── Verified model chain ────────────────────────────────────────────────────────────────────
+// ── Model chain ────────────────────────────────────────────────────────────────
+// gemini-1.5-flash (bare) returns 404 as of April 2026 — use -latest alias.
 const MODEL_CHAIN = [
-  'gemini-2.0-flash',  // primary  — stable GA, highest free quota
-  'gemini-1.5-flash',  // fallback — stable GA, broad availability
+  'gemini-2.0-flash',        // primary  — 15 RPM, 1500 RPD
+  'gemini-2.0-flash-lite',   // fallback — higher RPM, lower quality
+  'gemini-1.5-flash-latest', // last resort — stable 1.5 via latest alias
 ];
 
 let _genAI  = null;
 let _models = null;
 
-// FIX-A: generationConfig added — low temperature for deterministic, factual security analysis.
 function getModels() {
   if (_models) return _models;
   const key = process.env.GEMINI_API_KEY;
@@ -52,7 +42,7 @@ function getModels() {
     _genAI.getGenerativeModel({
       model: name,
       generationConfig: {
-        temperature:     0.2,   // low = consistent, factual; was implicitly ~1.0 (random)
+        temperature:     0.2,
         topP:            0.8,
         maxOutputTokens: 1024,
       },
@@ -72,9 +62,7 @@ function getRetryDelay(errMessage, defaultMs = 20_000) {
   return defaultMs;
 }
 
-// ── SENTINAL Platform Knowledge ─────────────────────────────────────────────────────────
-// FIX-D: This is now conditionally injected only when the question requires UI navigation.
-// For pure data/analysis questions it is omitted to keep the model focused on telemetry.
+// ── SENTINAL Platform Knowledge ─────────────────────────────────────────────
 const PLATFORM_KNOWLEDGE = `You are embedded inside SENTINAL — a real-time threat detection and response platform.
 You have full knowledge of every page and feature. Use this knowledge to give analysts
 exact navigation steps whenever your answer involves doing something in the UI.
@@ -110,9 +98,7 @@ GUIDELINES:
 - Say "click the 🔬 Forensics button on the Attacks page" — not "view forensics".
 - Blocking an IP → /action-queue. Investigating an event → /attacks Forensics/Report buttons.`;
 
-// ── Core: generate with model fallback + one retry per model on 429 ─────────────────────
-// FIX-B: Accepts a structured request object { systemInstruction?, contents } OR a plain
-//        string (for report/correlate/mutate calls that don't need history).
+// ── Core: generate with model fallback + one retry per model on 429 ──────────
 async function generateWithFallback(request) {
   const models = getModels();
   if (!models) return null;
@@ -154,8 +140,7 @@ async function generateWithFallback(request) {
   throw quotaErr;
 }
 
-// ── Core: streaming version ────────────────────────────────────────────────────────────
-// FIX-B (stream): same structured request support.
+// ── Core: streaming version ───────────────────────────────────────────────────
 async function* generateStreamWithFallback(request) {
   const models = getModels();
   if (!models) return;
@@ -191,7 +176,7 @@ async function* generateStreamWithFallback(request) {
   throw quotaErr;
 }
 
-// ── Helpers ─────────────────────────────────────────────────────────────────────────────
+// ── Helpers ──────────────────────────────────────────────────────────────────
 function stripFences(text) {
   return text.replace(/```json\s*/gi, '').replace(/```\s*/g, '').trim();
 }
@@ -199,11 +184,6 @@ function safeParseJSON(text) {
   try { return JSON.parse(stripFences(text)); } catch { return null; }
 }
 
-/**
- * buildAttackContext — builds numbered telemetry lines.
- * FIX-E: payload slice raised 80 → 200 chars with ellipsis so Gemini sees
- *        complete attack payloads instead of truncated garbage strings.
- */
 function buildAttackContext(attacks) {
   if (!attacks || !attacks.length) return { context: 'No recent attack data available.', indexedIds: [] };
   const indexedIds = [];
@@ -229,19 +209,6 @@ function quotaFallback(errorCode) {
   return { answer, grounded: false, errorCode, suggestions: [], sourcedEventIds: [] };
 }
 
-/**
- * buildChatRequest — FIX-B + FIX-C + FIX-D
- * Builds a structured Gemini SDK request:
- *   - systemInstruction  → dedicated persona slot (not mixed into user message)
- *   - contents           → proper role:user / role:model turns for history
- *   - final user turn    → telemetry + question only (no nav bloat for data questions)
- *
- * FIX-D: PLATFORM_KNOWLEDGE injected into systemInstruction only when question is
- *        navigation/UI related. For pure data questions, a lean security analyst persona
- *        is used so the model keeps full attention on the telemetry.
- *
- * FIX-F: Word limit is dynamic — 600 for complex analytical questions, 300 for simple ones.
- */
 function buildChatRequest(question, context, history) {
   const isNavQuestion = /how\s+do|where\s+(can|do|is)|show\s+me|go\s+to|navigate|find\s+the|which\s+page|which\s+button|how\s+to\s+(block|view|approve|reject|upload|filter|export|see)/i.test(question);
 
@@ -252,7 +219,6 @@ function buildChatRequest(question, context, history) {
   const isComplexQuestion = /correlat|forensic|analys|explain|why|how does|pattern|campaign|chain|what is|describe|summar/i.test(question);
   const wordLimit = isComplexQuestion ? 600 : 300;
 
-  // FIX-C: History as proper SDK role/parts turns instead of serialised flat text.
   const historyTurns = (history || []).slice(-6).map(h => ({
     role:  h.role === 'user' ? 'user' : 'model',
     parts: [{ text: h.text }],
@@ -279,17 +245,12 @@ function buildChatRequest(question, context, history) {
   };
 }
 
-/**
- * extractMetadata — FIX-G
- * Safely strips SUGGESTIONS/SOURCES from the answer by slicing at the first
- * line boundary where these markers appear, instead of fragile regex replace.
- */
 function extractMetadata(raw, indexedIds) {
   const metaIdx = raw.search(/(?:^|\n)(?:SUGGESTIONS:|SOURCES:)/);
   const answer  = metaIdx !== -1 ? raw.slice(0, metaIdx).trim() : raw.trim();
   const meta    = metaIdx !== -1 ? raw.slice(metaIdx) : '';
 
-  let suggestions    = [];
+  let suggestions     = [];
   let sourcedEventIds = [];
 
   const sugMatch = meta.match(/SUGGESTIONS:\s*(\[[^\]]*\])/s);
@@ -306,7 +267,7 @@ function extractMetadata(raw, indexedIds) {
   return { answer, suggestions, sourcedEventIds };
 }
 
-// ── 1. Security Co-Pilot Chat ────────────────────────────────────────────────────────────
+// ── 1. Security Co-Pilot Chat ─────────────────────────────────────────────────
 async function chat(question, recentAttacks, history = []) {
   if (!getModels()) return quotaFallback('NO_API_KEY');
 
@@ -328,7 +289,7 @@ async function chat(question, recentAttacks, history = []) {
   }
 }
 
-// ── 2. Streaming chat ────────────────────────────────────────────────────────────────────
+// ── 2. Streaming chat ─────────────────────────────────────────────────────────
 async function* chatStream(question, recentAttacks, history = []) {
   if (!getModels()) {
     yield { type: 'error', errorCode: 'NO_API_KEY' };
@@ -345,8 +306,6 @@ async function* chatStream(question, recentAttacks, history = []) {
     for await (const chunk of generateStreamWithFallback(request)) {
       fullText += chunk;
 
-      // Only suppress chunks once an actual SUGGESTIONS:/SOURCES: marker appears
-      // at the start of a line — not when those words appear inside the answer body.
       if (!metadataStarted) {
         metadataStarted = /(?:^|\n)(?:SUGGESTIONS:|SOURCES:)/.test(fullText);
       }
@@ -369,8 +328,7 @@ async function* chatStream(question, recentAttacks, history = []) {
   }
 }
 
-// ── 3. Incident Report Generator ────────────────────────────────────────────────────────
-// reportType: 'technical' (default) | 'executive' | 'forensic'
+// ── 3. Incident Report Generator ─────────────────────────────────────────────
 async function generateReport(attack, reportType = 'technical') {
   const staticReport = {
     generated: false,
@@ -440,7 +398,7 @@ async function generateReport(attack, reportType = 'technical') {
   }
 }
 
-// ── 4. Attack Correlation Engine ─────────────────────────────────────────────────────────
+// ── 4. Attack Correlation Engine ──────────────────────────────────────────────
 async function correlate(attacks) {
   const byIp   = {};
   const byType = {};
@@ -533,7 +491,7 @@ async function correlate(attacks) {
   }
 }
 
-// ── 5. Payload Mutation Generator ────────────────────────────────────────────────────────
+// ── 5. Payload Mutation Generator ─────────────────────────────────────────────
 async function mutate(payload, attackType) {
   const staticMutations = [
     { variant: payload.replace(/'/g, '%27').replace(/"/g, '%22'), technique: 'URL Encoding', evades: 'Basic string matching WAF rules', risk: 'medium', evasionProbability: 0.55, category: 'encoding' },
