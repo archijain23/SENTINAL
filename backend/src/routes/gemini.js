@@ -39,6 +39,7 @@ const geminiLimiter = rateLimit({
 });
 
 // ── POST /api/gemini/chat ─────────────────────────────────────────────────────
+// Body: { message: string, history?: [{ role: 'user'|'model', text: string }] }
 router.post('/chat', geminiLimiter, async (req, res) => {
   const { message, history } = req.body;
 
@@ -46,6 +47,7 @@ router.post('/chat', geminiLimiter, async (req, res) => {
     return res.status(400).json({ success: false, message: 'message is required', code: 'VALIDATION_ERROR' });
   }
 
+  // Validate history — max 10 turns, correct shape
   const safeHistory = Array.isArray(history)
     ? history
         .filter(h => h && typeof h.role === 'string' && typeof h.text === 'string')
@@ -76,6 +78,10 @@ router.post('/chat', geminiLimiter, async (req, res) => {
 });
 
 // ── GET /api/gemini/chat/stream ───────────────────────────────────────────────
+// Query: ?message=...&history=<JSON encoded array>
+// Streams SSE: data: {"type":"chunk","text":"..."}
+//              data: {"type":"done","suggestions":[...],"sourcedEventIds":[...]}
+//              data: {"type":"error","errorCode":"..."}
 router.get('/chat/stream', geminiLimiter, async (req, res) => {
   const { message } = req.query;
 
@@ -92,7 +98,7 @@ router.get('/chat/stream', geminiLimiter, async (req, res) => {
   res.setHeader('Content-Type', 'text/event-stream');
   res.setHeader('Cache-Control', 'no-cache');
   res.setHeader('Connection', 'keep-alive');
-  res.setHeader('X-Accel-Buffering', 'no');
+  res.setHeader('X-Accel-Buffering', 'no'); // disable nginx buffering
   res.flushHeaders();
 
   const send = (obj) => res.write(`data: ${JSON.stringify(obj)}\n\n`);
@@ -113,6 +119,7 @@ router.get('/chat/stream', geminiLimiter, async (req, res) => {
 });
 
 // ── POST /api/gemini/report/:attackId ─────────────────────────────────────────
+// Body: { reportType?: 'technical'|'executive'|'forensic' }
 router.post('/report/:attackId', geminiLimiter, async (req, res) => {
   const { attackId } = req.params;
   const reportType = ['technical', 'executive', 'forensic'].includes(req.body?.reportType)
@@ -144,6 +151,7 @@ router.post('/report/:attackId', geminiLimiter, async (req, res) => {
 });
 
 // ── GET /api/gemini/report/:attackId/export ───────────────────────────────────
+// Query: ?format=markdown (default) | ?reportType=technical|executive|forensic
 router.get('/report/:attackId/export', async (req, res) => {
   const { attackId } = req.params;
   const reportType = ['technical', 'executive', 'forensic'].includes(req.query?.reportType)
@@ -227,6 +235,7 @@ router.post('/correlate', geminiLimiter, async (req, res) => {
 
     const result = await correlate(attacks);
 
+    // Persist snapshot for risk score trending
     try {
       await CorrelationSnapshot.create({
         riskScore:     result.riskScore || 0,
@@ -252,6 +261,7 @@ router.post('/correlate', geminiLimiter, async (req, res) => {
 });
 
 // ── GET /api/gemini/correlate/history ─────────────────────────────────────────
+// Returns last 20 correlation snapshots for risk score trending
 router.get('/correlate/history', async (req, res) => {
   try {
     const snapshots = await CorrelationSnapshot
@@ -262,7 +272,7 @@ router.get('/correlate/history', async (req, res) => {
 
     return res.status(200).json({
       success: true,
-      data: snapshots.reverse(),
+      data: snapshots.reverse(), // chronological order for charting
     });
   } catch (err) {
     logger.error(`[GeminiRoute] /correlate/history error: ${err.message}`);

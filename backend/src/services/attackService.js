@@ -8,6 +8,10 @@ const logger      = require('../utils/logger');
 
 const NEXUS_URL = process.env.NEXUS_URL || 'http://localhost:8004';
 
+/**
+ * Non-blocking Nexus call.
+ * Called AFTER AttackEvent is saved. Never awaited from the main flow.
+ */
 const callNexus = async (attack) => {
   try {
     const response = await axios.post(
@@ -19,6 +23,7 @@ const callNexus = async (attack) => {
         severity:   attack.severity,
         status:     attack.status,
         confidence: attack.confidence,
+        // ── NEW: pass geo context to Nexus for geo-aware policy decisions ──
         geoIntel:   attack.geoIntel || null,
       },
       { timeout: 8000, headers: { 'Content-Type': 'application/json' } }
@@ -71,7 +76,9 @@ const reportAttack = async (data) => {
     explanation:          data.explanation          || '',
     mitigationSuggestion: data.mitigationSuggestion || '',
     responseCode:         data.responseCode         || null,
+    // ── NEW: persist geo intelligence ────────────────────────────────────────
     geoIntel:             data.geoIntel             || null,
+    // ─────────────────────────────────────────────────────────────────────────
   });
 
   emitter.emit(EVENTS.ATTACK_NEW, {
@@ -83,12 +90,16 @@ const reportAttack = async (data) => {
     detectedBy: attack.detectedBy,
     confidence: attack.confidence,
     timestamp:  attack.createdAt,
+    // ── NEW: broadcast geo in real-time socket event ─────────────────────────
     geoIntel:   attack.geoIntel,
+    // ─────────────────────────────────────────────────────────────────────────
   });
 
   if (['high', 'critical'].includes(data.severity)) {
+    // ── NEW: include country in alert message if available ───────────────────
     const country = data.geoIntel?.country || '';
     const countryStr = country && country !== 'Private/Local' ? ` from ${country}` : '';
+    // ─────────────────────────────────────────────────────────────────────────
 
     const alert = await Alert.create({
       attackId: attack._id,
@@ -99,10 +110,12 @@ const reportAttack = async (data) => {
       meta: {
         attackType:             data.attackType,
         confidence:             data.confidence,
+        // ── NEW: geo meta in alert ─────────────────────────────────────────
         country:                data.geoIntel?.country      || null,
         country_code:           data.geoIntel?.country_code || null,
         abuse_confidence_score: data.geoIntel?.abuse_confidence_score || 0,
         is_tor:                 data.geoIntel?.is_tor       || false,
+        // ──────────────────────────────────────────────────────────────────
       }
     });
 

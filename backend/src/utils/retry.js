@@ -13,6 +13,7 @@ const withRetry = async (fn, attempts = 3, delayMs = 200) => {
     } catch (err) {
       lastError = err;
       if (i < attempts - 1) {
+        // Exponential backoff: 200ms, 400ms, 800ms
         await new Promise(res => setTimeout(res, delayMs * Math.pow(2, i)));
       }
     }

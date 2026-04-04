@@ -3,7 +3,10 @@
  * POST /api/nexus/trigger
  *
  * Creates a real SystemLog + AttackEvent in MongoDB, then triggers
- * the Nexus enforcement pipeline.
+ * the Nexus enforcement pipeline. Does NOT require the Detection
+ * Engine to be running. Use this for demos and testing.
+ *
+ * Body: { ip, attackType, severity, confidence, status }
  */
 const express       = require('express');
 const router        = express.Router();
@@ -52,6 +55,11 @@ const ACTION_MAP = {
   unknown:           'Flag for manual review, apply rate limiting to the source IP.',
 };
 
+/**
+ * Build a structured explanation JSON string for simulated attacks.
+ * Matches the schema that parseExplanation() + ForensicsPage AI Analysis panel expect:
+ *   { summary, what_happened, potential_impact, recommended_action, rule_triggered, source }
+ */
 const buildSimulatedExplanation = (attackType, severity) =>
   JSON.stringify({
     summary:            `${severity.toUpperCase()} severity ${attackType.replace(/_/g, ' ')} attack detected`,
@@ -90,6 +98,7 @@ router.post('/trigger', async (req, res) => {
 
     logger.info(`[NEXUS-TRIGGER] Simulating ${attackType} from ${ip} (${severity})`);
 
+    // Step 1 — Create a real SystemLog so requestId has a valid ObjectId ref
     const demoLog = await SystemLog.create({
       projectId:    'nexus-demo',
       method:       'GET',
@@ -101,6 +110,7 @@ router.post('/trigger', async (req, res) => {
       responseCode: 200
     });
 
+    // Step 2 — reportAttack saves AttackEvent + calls Nexus fire-and-forget
     const attack = await attackService.reportAttack({
       requestId:            demoLog._id,
       ip,

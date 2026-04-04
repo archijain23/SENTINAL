@@ -2,6 +2,7 @@ const axios = require('axios');
 const ServiceStatus = require('../models/ServiceStatus');
 const logger = require('../utils/logger');
 
+// Service registry — reads from central .env
 const SERVICES = [
   {
     name: 'detection-engine',

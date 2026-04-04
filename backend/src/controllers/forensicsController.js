@@ -19,29 +19,42 @@ const getForensics = async (req, res) => {
   try {
     const { id } = req.params;
 
+    // Query 1 — Full attack + raw request joined
     const attack = await AttackEvent.findById(id)
       .populate('requestId')
       .lean();
 
     if (!attack) {
-      return res.status(404).json({ success: false, message: 'Attack not found', code: 'NOT_FOUND' });
+      return res.status(404).json({
+        success: false,
+        message: 'Attack not found',
+        code: 'NOT_FOUND'
+      });
     }
 
     const ip = attack.ip;
     const since24h = new Date(Date.now() - 24 * 60 * 60 * 1000);
 
-    const ipHistory = await SystemLog.find({ ip, timestamp: { $gte: since24h } })
+    // Query 2 — All requests from this IP in last 24h
+    // SystemLog uses custom 'timestamp' field (not createdAt)
+    const ipHistory = await SystemLog.find({
+      ip,
+      timestamp: { $gte: since24h }
+    })
       .sort({ timestamp: 1 })
       .select('method url timestamp responseCode')
       .limit(100)
       .lean();
 
+    // Query 3 — All attacks from this IP ever
+    // AttackEvent uses Mongoose timestamps:true so sort by createdAt
     const allAttacks = await AttackEvent.find({ ip })
       .sort({ createdAt: -1 })
       .select('attackType severity status createdAt confidence')
       .limit(50)
       .lean();
 
+    // Build attack chain timeline
     const attackChain = ipHistory.map(req => ({
       time:   req.timestamp,
       method: req.method,
@@ -64,6 +77,9 @@ const getForensics = async (req, res) => {
           detectedBy:  attack.detectedBy,
           payload:     attack.payload,
           explanation: attack.explanation,
+          // Use createdAt (from timestamps:true) — AttackEvent has no top-level 'timestamp'
+          // The schema does define a custom 'timestamp' field too, but createdAt is the
+          // authoritative Mongoose-managed field used everywhere else in the system.
           timestamp:   attack.createdAt
         },
         raw_request: attack.requestId ? {
@@ -93,7 +109,11 @@ const getForensics = async (req, res) => {
 
   } catch (err) {
     logger.error(`[FORENSICS] ${err.message}`);
-    return res.status(500).json({ success: false, message: 'Forensics query failed', code: 'SERVER_ERROR' });
+    return res.status(500).json({
+      success: false,
+      message: 'Forensics query failed',
+      code: 'SERVER_ERROR'
+    });
   }
 };
 

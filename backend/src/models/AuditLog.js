@@ -19,9 +19,10 @@ const AuditLogSchema = new mongoose.Schema(
       default: 'agent'
     },
     ip:       { type: String, default: '' },
-    // Store attackId as plain String to avoid ObjectId cast errors from Nexus mock IDs
+    // Store attackId as plain String — avoids ObjectId cast errors when
+    // Nexus sends a test/mock ID that is not a real AttackEvent document
     attackId: { type: String, default: null },
-    meta:     { type: mongoose.Schema.Types.Mixed, default: {} }
+    meta: { type: mongoose.Schema.Types.Mixed, default: {} }
   },
   {
     timestamps: true,

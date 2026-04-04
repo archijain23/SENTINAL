@@ -1,6 +1,7 @@
 /**
  * SENTINAL — Geo-IP Intelligence Routes
- * GET /api/geo/heatmap    — country-level attack heatmap
+ * =======================================
+ * GET /api/geo/heatmap    — country-level attack heatmap (aggregated from MongoDB)
  * GET /api/geo/ip/:ip     — lookup a specific IP's geo + abuse data
  * GET /api/geo/stats      — top attacking countries, ISPs, TOR/proxy stats
  */
@@ -14,6 +15,8 @@ const logger   = require('../utils/logger');
 const DETECTION_URL = process.env.DETECTION_URL || 'http://localhost:8002';
 
 // ── GET /api/geo/heatmap ─────────────────────────────────────────────────────
+// Aggregates attack counts per country from MongoDB AttackEvents.
+// Returns data ready for Leaflet / D3 world map rendering.
 router.get('/heatmap', async (req, res) => {
   try {
     const pipeline = [
@@ -58,13 +61,18 @@ router.get('/heatmap', async (req, res) => {
   }
 });
 
+
 // ── GET /api/geo/ip/:ip ───────────────────────────────────────────────────────
+// Proxies a single-IP lookup to the Detection Engine geo_intel module.
 router.get('/ip/:ip', async (req, res) => {
   try {
+    const { ip } = req.params;
+    // Forward to Detection Engine which has the cached geo_intel module
     const response = await axios.get(
       `${DETECTION_URL}/geo/heatmap`,
       { timeout: 5000 }
     );
+    // Find this specific IP in the cache snapshot
     const heatmap = response.data.heatmap || [];
     return res.json({ success: true, heatmap });
   } catch (err) {
@@ -73,7 +81,9 @@ router.get('/ip/:ip', async (req, res) => {
   }
 });
 
+
 // ── GET /api/geo/stats ────────────────────────────────────────────────────────
+// Top 10 attacking countries, TOR/proxy/abuse stats summary.
 router.get('/stats', async (req, res) => {
   try {
     const [topCountries, threatFlags] = await Promise.all([

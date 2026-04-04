@@ -2,6 +2,7 @@ const axios = require('axios');
 const { withRetry } = require('../utils/retry');
 const logger = require('../utils/logger');
 
+// Supports both old DETECTION_ENGINE_URL and new centralized DETECTION_URL
 const DETECTION_ENGINE_URL =
   process.env.DETECTION_URL ||
   process.env.DETECTION_ENGINE_URL ||

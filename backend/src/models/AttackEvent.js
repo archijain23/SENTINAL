@@ -1,5 +1,6 @@
 const mongoose = require('mongoose');
 
+// ── NEW: Geo-IP sub-schema ────────────────────────────────────────────────────
 const GeoIntelSchema = new mongoose.Schema({
   country:                { type: String,  default: 'Unknown' },
   country_code:           { type: String,  default: 'XX' },
@@ -18,6 +19,7 @@ const GeoIntelSchema = new mongoose.Schema({
   total_reports:          { type: Number,  default: 0 },
   last_reported_at:       { type: Date,    default: null },
 }, { _id: false });
+// ─────────────────────────────────────────────────────────────────────────────
 
 const AttackEventSchema = new mongoose.Schema({
   requestId: {
@@ -64,20 +66,36 @@ const AttackEventSchema = new mongoose.Schema({
     max: 1.0,
     default: 1.0
   },
-  payload:              { type: String, default: '' },
-  explanation:          { type: String, default: '' },
-  mitigationSuggestion: { type: String, default: '' },
-  responseCode:         { type: Number, default: null },
+  payload: {
+    type: String,
+    default: ''
+  },
+  explanation: {
+    type: String,
+    default: ''
+  },
+  mitigationSuggestion: {
+    type: String,
+    default: ''
+  },
+  responseCode: {
+    type: Number,
+    default: null
+  },
+  // ── NEW: embedded Geo-IP intelligence ──────────────────────────────────────
   geoIntel: {
     type: GeoIntelSchema,
     default: null
   }
+  // ───────────────────────────────────────────────────────────────────────────
 }, {
   timestamps: true,
   collection: 'attackevents'
 });
 
+// ── NEW: compound index for country-based queries (heatmap API) ──────────────
 AttackEventSchema.index({ 'geoIntel.country_code': 1, createdAt: -1 });
 AttackEventSchema.index({ 'geoIntel.abuse_confidence_score': -1 });
+// ─────────────────────────────────────────────────────────────────────────────
 
 module.exports = mongoose.model('AttackEvent', AttackEventSchema);

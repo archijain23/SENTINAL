@@ -12,9 +12,9 @@ if (!process.env.MONGO_URI) {
 }
 
 const MONGO_OPTIONS = {
-  serverSelectionTimeoutMS : 10000,
-  socketTimeoutMS          : 45000,
-  maxPoolSize              : 10,
+  serverSelectionTimeoutMS : 10000,   // 10 s to find a primary
+  socketTimeoutMS          : 45000,   // 45 s socket idle timeout
+  maxPoolSize              : 10,      // connection pool
   retryWrites              : true,
   w                        : 'majority'
 };
@@ -26,10 +26,12 @@ const connectDB = async (attempt = 1) => {
     logger.info(`[DATABASE] Connected to MongoDB Atlas — host: ${conn.connection.host}`);
     logger.info(`[DATABASE] Database name: ${conn.connection.name}`);
 
+    // ── Ensure critical indexes exist ────────────────────────────────────────
     mongoose.connection.once('open', async () => {
       try {
         const db = mongoose.connection.db;
 
+        // attackevents indexes
         await db.collection('attackevents').createIndex({ ip: 1 });
         await db.collection('attackevents').createIndex({ timestamp: -1 });
         await db.collection('attackevents').createIndex({ severity: 1 });
@@ -37,13 +39,21 @@ const connectDB = async (attempt = 1) => {
         await db.collection('attackevents').createIndex({ status: 1 });
         await db.collection('attackevents').createIndex({ severity: 1, timestamp: -1 });
         await db.collection('attackevents').createIndex({ ip: 1, timestamp: -1 });
+
+        // systemlogs indexes
         await db.collection('systemlogs').createIndex({ ip: 1 });
         await db.collection('systemlogs').createIndex({ timestamp: -1 });
+
+        // audit_log indexes
         await db.collection('audit_log').createIndex({ status: 1 });
         await db.collection('audit_log').createIndex({ ip: 1 });
         await db.collection('audit_log').createIndex({ createdAt: -1 });
+
+        // action_queue indexes
         await db.collection('action_queue').createIndex({ attackId: 1 });
         await db.collection('action_queue').createIndex({ status: 1 });
+
+        // alerts indexes
         await db.collection('alerts').createIndex({ severity: 1 });
         await db.collection('alerts').createIndex({ createdAt: -1 });
 

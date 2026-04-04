@@ -22,20 +22,32 @@ const SystemLogSchema = new mongoose.Schema({
     required: [true, 'URL is required'],
     trim: true
   },
-  queryParams:     { type: Object, default: {} },
-  body:            { type: Object, default: {} },
+  queryParams: {
+    type: Object,
+    default: {}
+  },
+  body: {
+    type: Object,
+    default: {}
+  },
   headers: {
-    userAgent:   { type: String, default: '' },
+    userAgent: { type: String, default: '' },
     contentType: { type: String, default: '' },
-    referer:     { type: String, default: '' }
+    referer: { type: String, default: '' }
   },
   ip: {
     type: String,
     required: [true, 'IP address is required'],
     index: true
   },
-  responseCode:     { type: Number, default: null },
-  processingTimeMs: { type: Number, default: 0 }
+  responseCode: {
+    type: Number,
+    default: null
+  },
+  processingTimeMs: {
+    type: Number,
+    default: 0
+  }
 }, {
   timestamps: true,
   collection: 'systemlogs'

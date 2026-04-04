@@ -6,17 +6,17 @@ const ATTACK_TYPES = [
 ];
 
 const reportSchema = Joi.object({
-  requestId:            Joi.string().hex().length(24).required(),
-  ip:                   Joi.string().trim().required(),
-  attackType:           Joi.string().valid(...ATTACK_TYPES).required(),
-  severity:             Joi.string().valid('low','medium','high','critical').required(),
-  status:               Joi.string().valid('attempt','successful','blocked').required(),
-  detectedBy:           Joi.string().valid('rule','ml','both').required(),
-  confidence:           Joi.number().min(0).max(1).default(1.0),
+  requestId:   Joi.string().hex().length(24).required(),
+  ip:          Joi.string().trim().required(),
+  attackType:  Joi.string().valid(...ATTACK_TYPES).required(),
+  severity:    Joi.string().valid('low','medium','high','critical').required(),
+  status:      Joi.string().valid('attempt','successful','blocked').required(),
+  detectedBy:  Joi.string().valid('rule','ml','both').required(),
+  confidence:  Joi.number().min(0).max(1).default(1.0),
   payload:              Joi.string().allow('').default(''),
   explanation:          Joi.string().allow('').default(''),
   mitigationSuggestion: Joi.string().allow('').default(''),
-  responseCode:         Joi.number().integer().allow(null).default(null)
+  responseCode: Joi.number().integer().allow(null).default(null)
 });
 
 module.exports = { reportSchema };

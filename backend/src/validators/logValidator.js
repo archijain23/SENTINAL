@@ -1,10 +1,12 @@
 const Joi = require('joi');
 
 const ingestSchema = Joi.object({
-  projectId:        Joi.string().trim().required(),
-  method:           Joi.string().valid('GET','POST','PUT','PATCH','DELETE','OPTIONS','HEAD').required(),
-  url:              Joi.string().trim().required(),
-  ip:               Joi.string().trim().required(),
+  projectId: Joi.string().trim().required(),
+  method: Joi.string()
+    .valid('GET','POST','PUT','PATCH','DELETE','OPTIONS','HEAD')
+    .required(),
+  url: Joi.string().trim().required(),
+  ip: Joi.string().trim().required(),
   queryParams:      Joi.object().default({}),
   body:             Joi.object().default({}),
   headers:          Joi.object().default({}),

@@ -10,11 +10,14 @@ const AttackEvent = require('../models/AttackEvent');
 const emitter     = require('../utils/eventEmitter');
 const logger      = require('../utils/logger');
 
+// ── Service URL ────────────────────────────────────────────────────────
+// Supports both new centralized PCAP_URL and old PCAP_SERVICE_URL (backward compat)
 const PCAP_SERVICE_URL =
   process.env.PCAP_URL ||
   process.env.PCAP_SERVICE_URL ||
   'http://localhost:8003';
 
+// ── Attack type normaliser ──────────────────────────────────────────────
 const ATTACK_TYPE_MAP = {
   'SQL Injection':            'sqli',
   'XSS':                      'xss',
@@ -42,6 +45,7 @@ const normaliseSeverity = (s) => {
   return map[s.toUpperCase()] || s.toLowerCase();
 };
 
+// ── Multer ───────────────────────────────────────────────────────────────────────────
 const upload = multer({
   dest: path.join('/tmp', 'sentinal-uploads'),
   limits: { fileSize: parseInt(process.env.MAX_PCAP_SIZE_MB || '500') * 1024 * 1024 },
@@ -55,7 +59,7 @@ const upload = multer({
 
 /**
  * POST /api/pcap/upload
- * Body: multipart/form-data  field: "pcap"
+ * Body: multipart/form-data  field: "pcap"  (the capture file)
  */
 router.post('/upload', upload.single('pcap'), async (req, res) => {
   if (!req.file) {

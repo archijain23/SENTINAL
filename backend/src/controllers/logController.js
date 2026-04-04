@@ -1,5 +1,6 @@
 const logService = require('../services/logService');
 
+// Validation now handled by Joi middleware — controller stays thin
 const ingest = async (req, res, next) => {
   try {
     const log = await logService.ingestLog(req.body);

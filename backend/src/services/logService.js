@@ -17,18 +17,32 @@ const ATTACK_TYPE_MAP = {
   'Typosquatting':            'unknown',
 };
 
+/**
+ * Map the detection engine's scored_by field to AttackEvent.detectedBy enum.
+ * Detection engine returns: 'rule_engine' | 'ml_model' | 'hybrid'
+ * AttackEvent schema expects: 'rule' | 'ml' | 'both'
+ */
 const mapDetectedBy = (scoredBy) => {
   if (scoredBy === 'hybrid')   return 'both';
   if (scoredBy === 'ml_model') return 'ml';
   return 'rule';
 };
 
+/**
+ * Safely serialize the explanation field.
+ * Detection engine returns explanation as a plain object.
+ * AttackEvent stores it as a JSON string so parseExplanation() in the
+ * frontend can parse it back. Never double-stringify.
+ */
 const serializeExplanation = (exp) => {
   if (!exp) return '';
-  if (typeof exp === 'string') return exp;
+  if (typeof exp === 'string') return exp;   // already serialized — pass through
   try { return JSON.stringify(exp); } catch { return ''; }
 };
 
+/**
+ * Extract mitigationSuggestion from whatever shape explanation arrives in.
+ */
 const extractMitigation = (exp) => {
   if (!exp) return '';
   if (typeof exp === 'object') return exp.recommended_action || '';

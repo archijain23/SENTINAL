@@ -6,19 +6,23 @@
  *   2. gemini-1.5-flash   — stable GA, 15 RPM,  500 RPD — fallback if 2.0 exhausted
  *
  * Capabilities:
- *   1. chat()           — Security Co-Pilot Q&A grounded in live attack telemetry
- *   2. chatStream()     — Streaming version of chat()
- *   3. generateReport() — Structured incident report for a single attack
+ *   1. chat()           — Security Co-Pilot Q&A grounded in live attack telemetry (+ history + suggestions + citations)
+ *   2. chatStream()     — Streaming version of chat() using generateContentStream
+ *   3. generateReport() — Structured incident report for a single attack (+ reportType template)
  *   4. correlate()      — Campaign correlation across up to 200 recent attacks
- *   5. mutate()         — Payload evasion variant generator (5 WAF-bypass mutations)
+ *   5. mutate()         — Payload evasion variant generator (5 WAF-bypass mutations + scoring)
  */
 
 const { GoogleGenerativeAI } = require('@google/generative-ai');
 const logger = require('../utils/logger');
 
+// ── Verified model chain ────────────────────────────────────────────────────────────────────
+// FIX 1: gemini-2.5-flash-lite and gemini-2.5-flash do not exist as stable GA models.
+// They returned 404 which caused generateWithFallback() to throw immediately,
+// breaking all AI features. Using correct stable free-tier models below.
 const MODEL_CHAIN = [
-  'gemini-2.0-flash',
-  'gemini-1.5-flash',
+  'gemini-2.0-flash',   // primary  — stable GA, highest free quota
+  'gemini-1.5-flash',   // fallback — stable GA, broad availability
 ];
 
 let _genAI  = null;
@@ -44,6 +48,10 @@ function getRetryDelay(errMessage, defaultMs = 20_000) {
   return defaultMs;
 }
 
+// ── SENTINAL Platform Knowledge Map ─────────────────────────────────────────────────
+// Injected into the chat system prompt so Gemini can guide analysts
+// with exact UI navigation paths and button names.
+// Keep in sync with the actual React routes and component labels.
 const PLATFORM_KNOWLEDGE = `
 You are embedded inside SENTINAL — a real-time threat detection and response platform.
 You have full knowledge of every page and feature. Use this knowledge to give analysts
@@ -51,25 +59,104 @@ exact navigation steps whenever your answer involves doing something in the UI.
 
 PLATFORM PAGES & FEATURES:
 
-1. /dashboard — Live KPIs, attack charts, recent activity feed
-2. /attacks — Full attack events table with Forensics and Report buttons per row
-3. /alerts — System alerts with severity badges, mark read/unread
-4. /logs — Raw HTTP request logs from all monitored services
-5. /pcap — Upload .pcap files for AI-powered packet analysis
-6. /action-queue — AI-suggested remediation actions awaiting human approval/rejection
-7. /audit — Immutable audit log of all actions (AI + human)
-8. /services — Health status dashboard for all monitored upstream services
-9. /copilot — Natural language Q&A with streaming responses and follow-up suggestions
-10. /correlation — Attack campaign correlation engine with risk score trending
-11. /simulate — Payload mutation engine generating 5 WAF-bypass variants
-12. /settings — Detection thresholds, alert rules, notification preferences
+1. /dashboard (Dashboard)
+   - Shows live KPIs: total attacks, blocked count, critical alerts, active services
+   - Attack type breakdown chart, severity distribution, recent activity feed
+   - Quick links to all other pages in the sidebar
 
-GUIDELINES:
-- Give exact numbered steps with page names and button labels when the analyst needs to act
-- Ground answers in the provided telemetry data
-- Be direct and actionable
+2. /attacks (Attacks)
+   - Full table of all detected attack events from MongoDB
+   - Columns: timestamp, type, severity, source IP, status (blocked/detected/allowed), confidence
+   - Filter bar at top: filter by attack type, severity, status, date range, IP address
+   - Click any row to expand details (payload, rule name, geo info)
+   - Each row has a \u{1F52C} Forensics button — opens AI-generated forensic report
+   - Each row has a 📊 Report button — generates executive/technical/forensic incident report
+   - Use this page to investigate specific IPs or payloads
+
+3. /alerts (Alerts)
+   - All system alerts with priority badges (99+ means many unread)
+   - Mark individual alerts as read, or bulk-mark all
+   - Alerts are auto-generated from high-severity or repeated attack patterns
+   - Filter by read/unread status
+
+4. /logs (Logs)
+   - Raw request logs from all monitored services
+   - Columns: timestamp, method, path, source IP, response code, service name
+   - Useful for correlating attack events with specific HTTP requests
+   - Search bar for filtering by path or IP
+
+5. /pcap (PCAP Analyzer)
+   - Upload a .pcap network capture file for AI-powered packet analysis
+   - Drag-and-drop upload zone — supports .pcap and .pcapng formats
+   - After upload, Gemini analyses the capture and surfaces anomalies, suspicious flows, and protocol violations
+   - Results show top talkers, suspicious IPs, and a plain-English threat summary
+
+6. /action-queue (Actions)
+   - AI-suggested remediation actions waiting for human approval (50+ pending shown in nav badge)
+   - Each action card shows: action type (block IP, rate-limit, quarantine), target, AI confidence, reasoning
+   - Two buttons per action: ✅ Approve and ❌ Reject — approved actions are executed immediately
+   - Audit trail of all approved/rejected actions visible in the Audit page
+   - Bulk approve all low-risk actions with the \"Approve All Low Risk\" button
+
+7. /audit (Audit Log)
+   - Immutable log of every action taken: AI suggestions, human approvals/rejections, config changes
+   - Columns: timestamp, actor (AI or human), action type, target, outcome
+   - Use for compliance evidence and post-incident review
+
+8. /services (Services)
+   - Status dashboard for all monitored upstream services
+   - Shows: service name, health status (online/degraded/offline), last checked timestamp
+   - Click a service to see its recent attack events and logs
+   - Add new services to monitor via the \"+ Add Service\" button
+
+9. /copilot (AI Copilot) — THIS IS WHERE YOU LIVE
+   - Natural language Q&A interface grounded in live MongoDB attack telemetry
+   - Conversation memory: context from last 6 turns is included in every request
+   - Streaming responses: answers appear token by token
+   - Follow-up suggestion chips appear after each answer
+   - Each answer has \"Copy\" and \"Export note\" buttons
+   - Source citations show how many telemetry events grounded the answer
+
+10. /correlation (Attack Correlation Engine)
+    - Click \"Run Correlation\" to have Gemini analyse up to 200 recent attacks
+    - Detects coordinated campaigns, shared attacker infrastructure, multi-stage attack chains
+    - Results show campaign cards (severity, IPs, attack types, timeline)
+    - Each campaign card has \"Ask Co-Pilot about this campaign\" which navigates here with the question pre-filled
+    - Risk score history sparkline shows trend across last 20 runs
+
+11. /simulate (Attack Simulator / Mutation Engine)
+    - Enter any malicious payload and select attack type
+    - AI generates 5 WAF-bypass mutation variants with evasion probability scores and technique names
+    - Each variant can be \"simulated\" — sends it to the demo target so it appears in the Attacks feed
+    - Use this to test WAF rules and detection coverage
+
+12. /settings (Settings)
+    - Configure detection thresholds, alert rules, notification preferences
+    - Add/remove monitored services
+    - API key management (not shown in UI for security)
+    - Toggle AI features on/off per environment
+
+NAVIGATION:
+- Sidebar is always visible on the left
+- Current page is highlighted in the sidebar
+- All pages are accessible from the sidebar without full page reload (React Router SPA)
+
+GUIDELINES FOR ANSWERING:
+- If the analyst asks HOW to do something in the platform, give exact numbered steps
+  using the page names and button labels above. Format steps as:
+  STEPS:
+  1. Go to [Page Name] (/route)
+  2. [Exact action with button/field name]
+  3. [Next action]
+- If answering about data, ground it in the telemetry and also tell them WHERE in the UI they can see/act on it
+- Be specific: say \"click the \u{1F52C} Forensics button on the Attacks page\" not \"view forensics\"
+- If a question is about blocking an IP, point to /action-queue
+- If a question is about a specific attack event, point to /attacks and the Forensics/Report buttons
 `;
 
+// ── Core: generate with model fallback + one retry per model on 429 ─────────────────
+// FIX 1 (continued): 404 errors now continue to the next model instead of throwing,
+// so if a model name becomes unavailable it gracefully falls back.
 async function generateWithFallback(prompt) {
   const models = getModels();
   if (!models) return null;
@@ -88,8 +175,9 @@ async function generateWithFallback(prompt) {
         const is404 = msg.includes('404');
 
         if (is404) {
-          logger.warn(`[GeminiService] 404: model ${modelName} not found — trying next model.`);
-          break;
+          // Model not found — log and try next model instead of throwing
+          logger.warn(`[GeminiService] 404: model ${modelName} not found — trying next model in chain.`);
+          break; // break inner attempt loop, continue to next model
         }
         if (is429 && attempt === 1) {
           const delay = getRetryDelay(msg);
@@ -111,6 +199,7 @@ async function generateWithFallback(prompt) {
   throw quotaErr;
 }
 
+// ── Core: streaming version — returns async iterable of text chunks ──────────────
 async function* generateStreamWithFallback(prompt) {
   const models = getModels();
   if (!models) return;
@@ -124,13 +213,17 @@ async function* generateStreamWithFallback(prompt) {
         const text = chunk.text();
         if (text) yield text;
       }
-      return;
+      return; // success — stop trying fallback models
     } catch (err) {
       const msg   = err.message || '';
       const is429 = msg.includes('429');
       const is404 = msg.includes('404');
-      if (is404 || is429) {
-        logger.warn(`[GeminiService] ${modelName} unavailable on stream — trying next model.`);
+      if (is404) {
+        logger.warn(`[GeminiService] 404: model ${modelName} not found on stream — trying next model.`);
+        continue;
+      }
+      if (is429) {
+        logger.warn(`[GeminiService] ${modelName} rate-limited on stream — trying next model`);
         continue;
       }
       throw err;
@@ -142,6 +235,7 @@ async function* generateStreamWithFallback(prompt) {
   throw quotaErr;
 }
 
+// ── Helpers ────────────────────────────────────────────────────────────────────────────
 function stripFences(text) {
   return text.replace(/```json\s*/gi, '').replace(/```\s*/g, '').trim();
 }
@@ -149,11 +243,20 @@ function safeParseJSON(text) {
   try { return JSON.parse(stripFences(text)); } catch { return null; }
 }
 
+/**
+ * buildAttackContext — builds numbered telemetry lines for the prompt.
+ * Returns { context: string, indexedIds: string[] } so callers can map
+ * Gemini's SOURCES: [1,3] back to real MongoDB _id values.
+ *
+ * FIX 3: slice limit raised from 40 → 50 to match the 50-event MongoDB
+ * fetch in the /chat route. Previously events 41-50 were fetched but
+ * silently dropped, causing Copilot to miss the most recent data.
+ */
 function buildAttackContext(attacks) {
   if (!attacks || !attacks.length) return { context: 'No recent attack data available.', indexedIds: [] };
   const indexedIds = [];
   const lines = attacks
-    .slice(0, 50)
+    .slice(0, 50) // FIX 3: was 40, now matches the 50-event DB fetch limit
     .map((a, i) => {
       indexedIds.push(a._id ? String(a._id) : null);
       return (
@@ -169,11 +272,12 @@ function buildAttackContext(attacks) {
 
 function quotaFallback(errorCode) {
   const answer = errorCode === 'QUOTA_EXHAUSTED'
-    ? 'The AI Co-Pilot has reached its free-tier API quota for today. Quota resets daily at midnight Pacific time.'
+    ? 'The AI Co-Pilot has reached its free-tier API quota for today. Quota resets daily at midnight Pacific time. To remove this limit, enable billing at https://ai.google.dev.'
     : 'Gemini API key is not configured. Add GEMINI_API_KEY to your .env file.';
   return { answer, grounded: false, errorCode, suggestions: [], sourcedEventIds: [] };
 }
 
+// ── Build conversation history block ─────────────────────────────────────────────────────
 function buildHistoryBlock(history) {
   if (!history || !history.length) return '';
   return '\nCONVERSATION HISTORY (most recent last):\n' +
@@ -182,11 +286,13 @@ function buildHistoryBlock(history) {
     ).join('\n') + '\n';
 }
 
+// ── Build the STEPS renderer instruction ───────────────────────────────────────────────
 const STEPS_FORMAT_INSTRUCTION =
   `If your answer involves taking an action in the SENTINAL UI, include a STEPS: block like:\n` +
   `STEPS:\n1. Go to [Page Name] (/route)\n2. [Exact action]\n3. [Next action]\n` +
-  `Only include STEPS: if the analyst needs to DO something. Omit it for pure data questions.`;
+  `Only include STEPS: if the analyst needs to DO something in the platform. Omit it for pure data questions.`;
 
+// ── 1. Security Co-Pilot Chat ───────────────────────────────────────────────────────────────
 async function chat(question, recentAttacks, history = []) {
   if (!getModels()) return quotaFallback('NO_API_KEY');
 
@@ -201,7 +307,7 @@ async function chat(question, recentAttacks, history = []) {
     `\nAnswer the analyst's question. Be direct and actionable.\n` +
     STEPS_FORMAT_INSTRUCTION + '\n' +
     `Do NOT fabricate events not in the data. Keep answer under 350 words. Plain text only.\n` +
-    `\nAfter your full answer, on a NEW LINE write exactly:\n` +
+    `\nAfter your full answer, on a NEW LINE write exactly (no extra text before or after the JSON array):\n` +
     `SUGGESTIONS: ["follow-up question 1?", "follow-up question 2?", "follow-up question 3?"]\n` +
     `SOURCES: [list the index numbers from the telemetry you used, e.g. 1,3,7]\n` +
     `\nQuestion: ${question}`;
@@ -223,7 +329,9 @@ async function chat(question, recentAttacks, history = []) {
     const srcMatch = raw.match(/SOURCES:\s*\[([^\]]*)\]/);
     if (srcMatch) {
       const indices = srcMatch[1].split(',').map(s => parseInt(s.trim(), 10)).filter(n => !isNaN(n));
-      sourcedEventIds = indices.map(n => indexedIds[n - 1]).filter(Boolean);
+      sourcedEventIds = indices
+        .map(n => indexedIds[n - 1])
+        .filter(Boolean);
       answer = answer.replace(/SOURCES:\s*\[[^\]]*\]/s, '').trim();
     }
 
@@ -235,6 +343,7 @@ async function chat(question, recentAttacks, history = []) {
   }
 }
 
+// ── 2. Streaming chat — yields text chunks then a final metadata object ───────────────
 async function* chatStream(question, recentAttacks, history = []) {
   if (!getModels()) {
     yield { type: 'error', errorCode: 'NO_API_KEY' };
@@ -263,9 +372,16 @@ async function* chatStream(question, recentAttacks, history = []) {
 
     for await (const chunk of generateStreamWithFallback(prompt)) {
       fullText += chunk;
+
+      // FIX 2: Previously used fullText.includes() which suppressed chunks as soon
+      // as any earlier part of the answer contained the word "SOURCES" or "SUGGESTIONS"
+      // (e.g. "I have no sources to cite"). Now we only suppress once the actual
+      // metadata section has started (i.e. the literal "SUGGESTIONS:" or "SOURCES:"
+      // marker appears at the start of a line in the accumulated buffer).
       if (!metadataStarted) {
         metadataStarted = /(?:^|\n)(?:SUGGESTIONS:|SOURCES:)/.test(fullText);
       }
+
       if (!metadataStarted) {
         yield { type: 'chunk', text: chunk };
       }
@@ -295,6 +411,8 @@ async function* chatStream(question, recentAttacks, history = []) {
   }
 }
 
+// ── 3. Incident Report Generator ───────────────────────────────────────────────────────────────
+// reportType: 'technical' (default) | 'executive' | 'forensic'
 async function generateReport(attack, reportType = 'technical') {
   const staticReport = {
     generated: false,
@@ -316,9 +434,9 @@ async function generateReport(attack, reportType = 'technical') {
   if (!getModels()) return staticReport;
 
   const audienceInstructions = {
-    executive: 'Write for a non-technical executive. Focus on business impact and strategic recommendations.',
-    technical: 'Write for a security engineer. Include technical detail about the attack vector and precise remediation.',
-    forensic:  'Write for a forensic investigator. Include IOCs, timeline reconstruction, and evidence preservation notes.',
+    executive: 'Write for a non-technical executive audience. Focus on business impact, risk, and strategic recommendations. Avoid jargon. Keep each field under 3 sentences.',
+    technical: 'Write for a security engineer. Include technical detail about the attack vector, affected components, and precise remediation steps.',
+    forensic:  'Write for a forensic investigator. Include IOCs, timeline reconstruction, evidence preservation notes, and chain-of-custody considerations.',
   };
 
   const instruction = audienceInstructions[reportType] || audienceInstructions.technical;
@@ -347,6 +465,7 @@ async function generateReport(attack, reportType = 'technical') {
   }
 }
 
+// ── 4. Attack Correlation Engine ───────────────────────────────────────────────────────────────
 async function correlate(attacks) {
   const byIp = {};
   const byType = {};
@@ -375,7 +494,7 @@ async function correlate(attacks) {
   const multiTypeIps = topIps.filter(x => x.types.length > 1);
 
   const clusterSummary = topIps.map(x =>
-    `IP ${x.ip}: ${x.count} attacks, types=[${x.types.join(',')}], severity=[${x.severities.join(',')}], firstSeen=${x.firstSeen || 'unknown'}, lastSeen=${x.lastSeen || 'unknown'}`
+    `IP ${x.ip}: ${x.count} attacks, types=[${x.types.join(',')}], severity=[${x.severities.join(',')}], status=[${x.statuses.join(',')}], firstSeen=${x.firstSeen || 'unknown'}, lastSeen=${x.lastSeen || 'unknown'}`
   ).join('\n');
 
   const staticFallback = {
@@ -398,12 +517,14 @@ async function correlate(attacks) {
 
   if (!getModels()) return { ...staticFallback, errorCode: 'NO_API_KEY' };
 
+  // FIX 4: Added firstSeen/lastSeen to the Gemini JSON schema so campaign cards
+  // render timeline data correctly in the UI instead of showing undefined.
   const prompt =
     `You are SENTINEL AI performing threat intelligence correlation.\n\n` +
     `ATTACK CLUSTER SUMMARY (${attacks.length} events, ${Object.keys(byIp).length} unique IPs):\n` +
     `${clusterSummary}\n\n` +
-    `Identify coordinated attack campaigns, shared infrastructure, and attack chains.\n\n` +
-    `Return ONLY a JSON object:\n` +
+    `Based on this data, identify coordinated attack campaigns, shared attacker infrastructure, and attack chains.\n\n` +
+    `Return ONLY a JSON object with EXACTLY these fields:\n` +
     `{\n` +
     `  "campaigns": [{ "name": string, "sourceIps": string[], "attackTypes": string[], "severity": string, "eventCount": number, "firstSeen": string|null, "lastSeen": string|null, "assessment": string }],\n` +
     `  "sharedInfrastructure": [{ "ips": string[], "evidence": string }],\n` +
@@ -416,7 +537,11 @@ async function correlate(attacks) {
     const text = await generateWithFallback(prompt);
     if (!text) return { ...staticFallback, errorCode: 'NO_API_KEY' };
     const parsed = safeParseJSON(text);
-    if (!parsed) return staticFallback;
+    if (!parsed) {
+      logger.warn('[GeminiService] correlate() — JSON parse failed, returning static fallback');
+      return staticFallback;
+    }
+    logger.info(`[GeminiService] correlate() — done (campaigns=${parsed.campaigns?.length || 0}, riskScore=${parsed.riskScore})`);
     return { ...parsed, generated: true };
   } catch (err) {
     if (err.isQuotaError) return { ...staticFallback, errorCode: 'QUOTA_EXHAUSTED' };
@@ -425,6 +550,7 @@ async function correlate(attacks) {
   }
 }
 
+// ── 5. Payload Mutation Generator ───────────────────────────────────────────────────────────────
 async function mutate(payload, attackType) {
   const staticMutations = [
     { variant: payload.replace(/'/g, '%27').replace(/"/g, '%22'), technique: 'URL Encoding', evades: 'Basic string matching WAF rules', risk: 'medium', evasionProbability: 0.55, category: 'encoding' },
@@ -439,16 +565,32 @@ async function mutate(payload, attackType) {
   const prompt =
     `You are a senior red-team security researcher generating WAF evasion test cases.\n\n` +
     `ORIGINAL PAYLOAD (${attackType}): ${payload}\n\n` +
-    `Generate exactly 5 evasion variants using different techniques.\n` +
+    `Generate exactly 5 evasion variants of this payload. Each variant should use a different evasion technique.\n` +
+    `Techniques to consider: URL encoding, double URL encoding, HTML entity encoding, Unicode escape, ` +
+    `comment injection, case alternation, whitespace manipulation, base64, hex encoding, null byte injection.\n\n` +
     `Return ONLY a JSON object:\n` +
-    `{ "mutations": [{ "variant": string, "technique": string, "evades": string, "risk": string, "evasionProbability": number, "category": string }] }\n` +
-    `Exactly 5 items. No markdown. Valid JSON only.`;
+    `{\n` +
+    `  "mutations": [\n` +
+    `    {\n` +
+    `      "variant": "the mutated payload string",\n` +
+    `      "technique": "technique name",\n` +
+    `      "evades": "what WAF rule/filter this bypasses",\n` +
+    `      "risk": "low|medium|high|critical",\n` +
+    `      "evasionProbability": 0.0-1.0,\n` +
+    `      "category": "encoding|whitespace|case|comment|null-byte|unicode"\n` +
+    `    }\n` +
+    `  ]\n` +
+    `}\n\nExactly 5 items. No markdown. Valid JSON only.`;
 
   try {
     const text = await generateWithFallback(prompt);
     if (!text) return { original: payload, mutations: staticMutations, generated: false, errorCode: 'NO_API_KEY' };
     const parsed = safeParseJSON(text);
-    if (!parsed || !Array.isArray(parsed.mutations)) return { original: payload, mutations: staticMutations, generated: false };
+    if (!parsed || !Array.isArray(parsed.mutations)) {
+      logger.warn('[GeminiService] mutate() — JSON parse failed, using static mutations');
+      return { original: payload, mutations: staticMutations, generated: false };
+    }
+    logger.info(`[GeminiService] mutate() — done (${parsed.mutations.length} variants)`);
     return { original: payload, mutations: parsed.mutations, generated: true };
   } catch (err) {
     if (err.isQuotaError) return { original: payload, mutations: staticMutations, generated: false, errorCode: 'QUOTA_EXHAUSTED' };

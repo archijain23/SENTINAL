@@ -11,6 +11,9 @@ const ActionQueueSchema = new mongoose.Schema(
     action: {
       type: String,
       required: true,
+      // Full set of actions that intent_builder.py can propose
+      // High-risk actions go through policy BLOCK -> ActionQueue for human review
+      // Low-risk actions are ALLOW -> executed directly, but included here for completeness
       enum: [
         'send_alert',
         'log_attack',

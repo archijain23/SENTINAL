@@ -12,6 +12,7 @@ const ingestAudit = async (req, res) => {
       triggeredBy, ip, attackId, meta
     } = req.body;
 
+    // Validate required fields
     if (!action || !status) {
       return res.status(400).json({
         success: false,
@@ -20,6 +21,7 @@ const ingestAudit = async (req, res) => {
       });
     }
 
+    // Normalise status to uppercase
     const normStatus = (status || '').toUpperCase();
     const allowed    = ['ALLOWED', 'BLOCKED', 'APPROVED', 'REJECTED'];
     if (!allowed.includes(normStatus)) {
@@ -36,6 +38,7 @@ const ingestAudit = async (req, res) => {
       status:            normStatus,
       reason:            reason            || '',
       policy_rule_id:    policy_rule_id    || '',
+      // Always lowercase — consistent across agent writes, human approval, and direct Mongoose upserts
       enforcement_level: enforcement_level || 'nexus-policy-v1',
       triggeredBy:       triggeredBy       || 'agent',
       ip:                ip                || '',
@@ -43,6 +46,7 @@ const ingestAudit = async (req, res) => {
       meta:              meta              || {}
     });
 
+    // Emit real-time socket event so Dashboard AuditLog panel updates live
     emitter.emit(EVENTS.AUDIT_NEW, {
       id:             entry._id,
       action:         entry.action,

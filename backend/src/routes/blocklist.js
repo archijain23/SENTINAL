@@ -43,11 +43,12 @@ router.get('/check/:ip', async (req, res) => {
     });
   } catch (err) {
     logger.error(`[BLOCKLIST] check failed for ip=${req.params.ip}:`, err.message);
+    // Fail-open: if DB is unreachable, do NOT block the request
     res.json({ blocked: false, data: null });
   }
 });
 
-// POST /api/blocklist  — block an IP
+// POST /api/blocklist  — block an IP (called by Response Engine after rate_limit_ip decision)
 router.post('/', async (req, res) => {
   try {
     const { ip, reason, attackType, attackId, durationMinutes, blockedBy } = req.body;
@@ -82,7 +83,7 @@ router.post('/', async (req, res) => {
   }
 });
 
-// DELETE /api/blocklist/:ip  — unblock an IP
+// DELETE /api/blocklist/:ip  — unblock an IP (human override)
 router.delete('/:ip', async (req, res) => {
   try {
     const result = await BlockedIP.deleteOne({ ip: req.params.ip });
