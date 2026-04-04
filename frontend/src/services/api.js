@@ -8,7 +8,7 @@ const http = axios.create({
   headers: { 'Content-Type': 'application/json' },
 });
 
-// Response interceptor — unwrap { data: { data: ... } }
+// Response interceptor
 http.interceptors.response.use(
   (res) => res,
   (err) => {
@@ -19,31 +19,36 @@ http.interceptors.response.use(
 
 const unwrap = (res) => res.data?.data ?? res.data;
 
-/* ── Stats ────────────────────────────────────────────────── */
-export const getStats         = () => http.get('/api/stats').then(unwrap);
+/* ─────────────────────────────────────────────────────────────
+   FLAT EXPORTS  (original — keep for backwards compat)
+───────────────────────────────────────────────────────────── */
 
-/* ── Attacks ──────────────────────────────────────────────── */
-export const getRecentAttacks = (limit = 50) => http.get(`/api/attacks/recent?limit=${limit}`).then(unwrap);
-export const getForensics     = (id) => http.get(`/api/attacks/${id}/forensics`).then(unwrap);
+/* Stats */
+export const getStats           = ()           => http.get('/api/stats').then(unwrap);
 
-/* ── Alerts ───────────────────────────────────────────────── */
-export const getAlerts        = (limit = 50) => http.get(`/api/alerts?limit=${limit}`).then(unwrap);
-export const markAlertRead    = (id) => http.patch(`/api/alerts/${id}/read`).then(unwrap);
-export const markAllAlertsRead = () => http.patch('/api/alerts/read-all').then(unwrap);
+/* Attacks */
+export const getRecentAttacks   = (limit = 50) => http.get(`/api/attacks/recent?limit=${limit}`).then(unwrap);
+export const getAttack          = (id)         => http.get(`/api/attacks/${id}`).then(unwrap);
+export const getForensics       = (id)         => http.get(`/api/attacks/${id}/forensics`).then(unwrap);
 
-/* ── Logs ─────────────────────────────────────────────────── */
-export const getRecentLogs    = (limit = 100) => http.get(`/api/logs/recent?limit=${limit}`).then(unwrap);
+/* Alerts */
+export const getAlerts          = (params = {}) => http.get('/api/alerts', { params }).then(unwrap);
+export const markAlertRead      = (id)          => http.patch(`/api/alerts/${id}/read`).then(unwrap);
+export const markAllAlertsRead  = ()            => http.patch('/api/alerts/read-all').then(unwrap);
 
-/* ── Services / Health ────────────────────────────────────── */
-export const getServiceStatus = () => http.get('/api/service-status').then(unwrap);
-export const getHealth        = () => http.get('/api/health').then(unwrap);
+/* Logs */
+export const getRecentLogs      = (limit = 100) => http.get(`/api/logs/recent?limit=${limit}`).then(unwrap);
 
-/* ── IP Intelligence ──────────────────────────────────────── */
-export const getIpIntel       = (ip) => http.get(`/api/intel/${ip}`).then(unwrap);
-export const getGeoThreats    = () => http.get('/api/geo/threats').then(unwrap);
-export const getTopSources    = () => http.get('/api/geo/top-sources').then(unwrap);
+/* Services / Health */
+export const getServiceStatus   = ()            => http.get('/api/service-status').then(unwrap);
+export const getHealth          = ()            => http.get('/api/health').then(unwrap);
 
-/* ── PCAP ─────────────────────────────────────────────────── */
+/* IP Intelligence */
+export const getIpIntel         = (ip)          => http.get(`/api/intel/${ip}`).then(unwrap);
+export const getGeoThreats      = ()            => http.get('/api/geo/threats').then(unwrap);
+export const getTopSources      = ()            => http.get('/api/geo/top-sources').then(unwrap);
+
+/* PCAP */
 export const uploadPcap = (file, projectId = 'pcap-upload') => {
   const form = new FormData();
   form.append('pcap', file);
@@ -52,25 +57,32 @@ export const uploadPcap = (file, projectId = 'pcap-upload') => {
     headers: { 'Content-Type': 'multipart/form-data' },
   }).then(unwrap);
 };
-export const getPcapJobs   = () => http.get('/api/pcap/jobs').then(unwrap);
-export const getPcapJob    = (id) => http.get(`/api/pcap/jobs/${id}`).then(unwrap);
+export const getPcapJobs        = ()            => http.get('/api/pcap/jobs').then(unwrap);
+export const getPcapJob         = (id)          => http.get(`/api/pcap/jobs/${id}`).then(unwrap);
 
-/* ── Blocklist ────────────────────────────────────────────── */
-export const getBlocklist   = ()        => http.get('/api/blocklist').then(unwrap);
-export const checkBlockedIP = (ip)      => http.get(`/api/blocklist/check/${encodeURIComponent(ip)}`).then(unwrap);
-export const blockIP        = (payload) => http.post('/api/blocklist', payload).then(unwrap);
-export const unblockIP      = (ip)      => http.delete(`/api/blocklist/${encodeURIComponent(ip)}`).then(unwrap);
+/* Blocklist */
+export const getBlocklist       = ()            => http.get('/api/blocklist').then(unwrap);
+export const checkBlockedIP     = (ip)          => http.get(`/api/blocklist/check/${encodeURIComponent(ip)}`).then(unwrap);
+export const blockIP            = (payload)     => http.post('/api/blocklist', payload).then(unwrap);
+export const unblockIP          = (ip)          => http.delete(`/api/blocklist/${encodeURIComponent(ip)}`).then(unwrap);
 
-/* ── Nexus / Action Queue ─────────────────────────────────── */
-export const getPendingActions = ()   => http.get('/api/actions/pending').then(unwrap);
-export const approveAction     = (id) => http.post(`/api/actions/${id}/approve`, { approvedBy: 'analyst' }).then(unwrap);
-export const rejectAction      = (id) => http.post(`/api/actions/${id}/reject`,  { rejectedBy: 'analyst' }).then(unwrap);
-export const getActionHistory  = (limit = 50) => http.get(`/api/actions/history?limit=${limit}`).then(unwrap);
+/* Action Queue / Nexus */
+export const getPendingActions  = ()            => http.get('/api/actions/pending').then(unwrap);
+export const approveAction      = (id)          => http.post(`/api/actions/${id}/approve`, { approvedBy: 'analyst' }).then(unwrap);
+export const rejectAction       = (id)          => http.post(`/api/actions/${id}/reject`,  { rejectedBy: 'analyst' }).then(unwrap);
+export const getActionHistory   = (limit = 50)  => http.get(`/api/actions/history?limit=${limit}`).then(unwrap);
 
-/* ── Audit Log ────────────────────────────────────────────── */
-export const getAuditLog = (limit = 100) => http.get(`/api/audit?limit=${limit}`).then(unwrap);
+/* Audit Log */
+export const getAuditLog        = (limit = 100) => http.get(`/api/audit?limit=${limit}`).then(unwrap);
 
-/* ── Gemini AI ────────────────────────────────────────────── */
+/* Simulation */
+export const getSimulations     = ()            => http.get('/api/simulate').then(unwrap);
+export const runSimulation      = (payload)     => http.post('/api/simulate', payload).then(unwrap);
+
+/* Correlation */
+export const getCorrelations    = ()            => http.get('/api/correlation').then(unwrap);
+
+/* Gemini AI */
 export const geminiChat = (message, history = []) =>
   http.post('/api/gemini/chat', { message, history }).then(unwrap);
 
@@ -88,13 +100,91 @@ export const geminiReport = (attackId, reportType = 'technical') =>
 export const geminiReportExportUrl = (attackId, reportType = 'technical') =>
   `${BASE}/api/gemini/report/${attackId}/export?reportType=${reportType}`;
 
-export const geminiCorrelate = () =>
-  http.post('/api/gemini/correlate').then(unwrap);
-
-export const geminiCorrelateHistory = () =>
-  http.get('/api/gemini/correlate/history').then(unwrap);
-
+export const geminiCorrelate        = ()        => http.post('/api/gemini/correlate').then(unwrap);
+export const geminiCorrelateHistory = ()        => http.get('/api/gemini/correlate/history').then(unwrap);
 export const geminiMutate = (payload, attackType = 'unknown') =>
   http.post('/api/gemini/mutate', { payload, attackType }).then(unwrap);
 
 export const BASE_URL = BASE;
+
+/* ─────────────────────────────────────────────────────────────
+   NAMESPACE EXPORTS  (used by DashboardPage, ThreatsPage, etc.)
+   Each object groups related flat functions — no duplicate logic.
+───────────────────────────────────────────────────────────── */
+
+export const statsAPI = {
+  getSummary:    getStats,
+  get:           getStats,
+};
+
+export const attacksAPI = {
+  getRecent:     getRecentAttacks,
+  getById:       getAttack,
+  getForensics:  getForensics,
+};
+
+export const alertsAPI = {
+  getAll:        (params) => getAlerts(params),
+  markRead:      markAlertRead,
+  markAllRead:   markAllAlertsRead,
+};
+
+export const logsAPI = {
+  getRecent:     getRecentLogs,
+};
+
+export const healthAPI = {
+  serviceStatus: getServiceStatus,
+  get:           getHealth,
+};
+
+export const ipAPI = {
+  getIntel:      getIpIntel,
+  getGeoThreats: getGeoThreats,
+  getTopSources: getTopSources,
+};
+
+export const pcapAPI = {
+  upload:        uploadPcap,
+  getJobs:       getPcapJobs,
+  getJob:        getPcapJob,
+};
+
+export const blocklistAPI = {
+  getAll:        getBlocklist,
+  check:         checkBlockedIP,
+  block:         blockIP,
+  unblock:       unblockIP,
+};
+
+export const nexusAPI = {
+  getPending:    getPendingActions,
+  approve:       approveAction,
+  reject:        rejectAction,
+  getHistory:    getActionHistory,
+};
+
+export const auditAPI = {
+  getLog:        getAuditLog,
+};
+
+export const simulateAPI = {
+  getAll:        getSimulations,
+  run:           runSimulation,
+  mutate:        geminiMutate,
+};
+
+export const correlationAPI = {
+  getAll:        getCorrelations,
+  run:           geminiCorrelate,
+  getHistory:    geminiCorrelateHistory,
+};
+
+export const aiAPI = {
+  chat:          geminiChat,
+  chatStream:    geminiChatStream,
+  report:        geminiReport,
+  reportExport:  geminiReportExportUrl,
+  correlate:     geminiCorrelate,
+  mutate:        geminiMutate,
+};
