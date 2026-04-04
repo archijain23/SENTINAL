@@ -1,11 +1,12 @@
 # SENTINAL Detection Engine — Python dependencies
 # Full production requirements (promoted from 'requirements copy.txt')
 # FIX-1: Replaced 7-line stub with complete ML + FastAPI dependencies
+# FIX-2: Removed annotated-doc==0.0.4 (obscure package, not used in codebase,
+#        risks pip resolution failure on fresh servers)
 
 # ─────────────────────────────────────────────────────────────────
 # Core FastAPI stack
 # ─────────────────────────────────────────────────────────────────
-annotated-types==0.7.0
 anyio==4.13.0
 certifi==2026.2.25
 click==8.3.1
