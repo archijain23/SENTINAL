@@ -1,16 +1,17 @@
 import { useState, useEffect, useCallback } from 'react';
 import { correlationAPI } from '../services/api';
+import { connectSocket, disconnectSocket, SOCKET_EVENTS } from '../services/socket';
 import SeverityBadge from '../components/ui/SeverityBadge';
-import styles from './CorrelationPage.module.css';
+import styles        from './CorrelationPage.module.css';
 
 export default function CorrelationPage() {
-  const [clusters,  setClusters]  = useState([]);
-  const [history,   setHistory]   = useState([]);
-  const [tab,       setTab]       = useState('live');
-  const [running,   setRunning]   = useState(false);
-  const [loading,   setLoading]   = useState(true);
-  const [error,     setError]     = useState(null);
-  const [expanded,  setExpanded]  = useState(null);
+  const [clusters, setClusters] = useState([]);
+  const [history,  setHistory]  = useState([]);
+  const [tab,      setTab]      = useState('live');
+  const [running,  setRunning]  = useState(false);
+  const [loading,  setLoading]  = useState(true);
+  const [error,    setError]    = useState(null);
+  const [expanded, setExpanded] = useState(null);
 
   const loadHistory = useCallback(async () => {
     try {
@@ -23,11 +24,33 @@ export default function CorrelationPage() {
 
   useEffect(() => { loadHistory(); }, [loadHistory]);
 
+  // ── Real-time: backend pushes a new correlation result automatically
+  useEffect(() => {
+    const socket = connectSocket();
+
+    // CORRELATION_SCORE payload: { clusters: [...], summary: '...' }
+    const onCorrelationScore = (payload) => {
+      const groups = payload?.clusters ?? payload?.groups ?? payload?.data ?? [];
+      if (Array.isArray(groups) && groups.length > 0) {
+        setClusters(groups);
+        setTab('live');          // auto-switch to latest result tab
+        loadHistory();           // refresh history list in background
+      }
+    };
+
+    socket.on(SOCKET_EVENTS.CORRELATION_SCORE, onCorrelationScore);
+
+    return () => {
+      socket.off(SOCKET_EVENTS.CORRELATION_SCORE, onCorrelationScore);
+      disconnectSocket();
+    };
+  }, [loadHistory]);
+
   const runCorrelation = async () => {
     setRunning(true);
     setError(null);
     try {
-      const res = await correlationAPI.run();
+      const res    = await correlationAPI.run();
       const groups = res?.clusters ?? res?.groups ?? res?.data ?? [];
       setClusters(Array.isArray(groups) ? groups : []);
       setTab('live');
@@ -50,17 +73,28 @@ export default function CorrelationPage() {
           {running ? (
             <><span className={styles.spinner} /> Analyzing…</>
           ) : (
-            <><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><polygon points="5 3 19 12 5 21 5 3"/></svg> Run Correlation</>
+            <>
+              <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+                <polygon points="5 3 19 12 5 21 5 3"/>
+              </svg>
+              Run Correlation
+            </>
           )}
         </button>
       </div>
 
       {/* Tabs */}
       <div className={styles.tabs}>
-        <button className={`${styles.tab} ${tab === 'live' ? styles.tabActive : ''}`} onClick={() => setTab('live')}>
+        <button
+          className={`${styles.tab} ${tab === 'live' ? styles.tabActive : ''}`}
+          onClick={() => setTab('live')}
+        >
           Latest Result {clusters.length > 0 && `(${clusters.length} clusters)`}
         </button>
-        <button className={`${styles.tab} ${tab === 'history' ? styles.tabActive : ''}`} onClick={() => setTab('history')}>
+        <button
+          className={`${styles.tab} ${tab === 'history' ? styles.tabActive : ''}`}
+          onClick={() => setTab('history')}
+        >
           History {history.length > 0 && `(${history.length})`}
         </button>
       </div>
@@ -74,12 +108,13 @@ export default function CorrelationPage() {
             <div className={styles.empty}>
               <svg width="40" height="40" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1">
                 <circle cx="12" cy="12" r="3"/>
-                <path d="M12 1v4M12 19v4M4.22 4.22l2.83 2.83M16.95 16.95l2.83 2.83M1 12h4M19 12h4M4.22 19.78l2.83-2.83M16.95 7.05l2.83-2.83"/>
+                <path d="M12 1v4M12 19v4M4.22 4.22l2.83 2.83M16.95 16.95l2.83 2.83
+                         M1 12h4M19 12h4M4.22 19.78l2.83-2.83M16.95 7.05l2.83-2.83"/>
               </svg>
               <p>Run a correlation to see attack clusters</p>
             </div>
           ) : clusters.map((c, i) => {
-            const id = c.id ?? c.clusterId ?? `cluster-${i}`;
+            const id     = c.id ?? c.clusterId ?? `cluster-${i}`;
             const isOpen = expanded === id;
             return (
               <div key={id} className={styles.cluster}>
@@ -87,8 +122,12 @@ export default function CorrelationPage() {
                   <div className={styles.clusterLeft}>
                     <span className={styles.clusterIndex}>#{i + 1}</span>
                     <SeverityBadge level={c.severity ?? 'medium'} />
-                    <span className={styles.clusterName}>{c.name ?? c.campaign ?? c.label ?? `Cluster ${i + 1}`}</span>
-                    <span className={styles.clusterCount}>{c.count ?? c.attacks?.length ?? '?'} attacks</span>
+                    <span className={styles.clusterName}>
+                      {c.name ?? c.campaign ?? c.label ?? `Cluster ${i + 1}`}
+                    </span>
+                    <span className={styles.clusterCount}>
+                      {c.count ?? c.attacks?.length ?? '?'} attacks
+                    </span>
                   </div>
                   <span className={styles.chevron}>{isOpen ? '▲' : '▼'}</span>
                 </button>
@@ -97,14 +136,20 @@ export default function CorrelationPage() {
                     {c.summary && <p className={styles.clusterSummary}>{c.summary}</p>}
                     {c.tactics && (
                       <div className={styles.chips}>
-                        {c.tactics.map(t => <span key={t} className={styles.tacticChip}>{t}</span>)}
+                        {c.tactics.map(t => (
+                          <span key={t} className={styles.tacticChip}>{t}</span>
+                        ))}
                       </div>
                     )}
                     {c.sourceIPs && (
                       <div className={styles.ipList}>
                         <span className={styles.ipLabel}>Source IPs:</span>
-                        {c.sourceIPs.slice(0, 10).map(ip => <span key={ip} className={styles.ipChip}>{ip}</span>)}
-                        {c.sourceIPs.length > 10 && <span className={styles.ipMore}>+{c.sourceIPs.length - 10} more</span>}
+                        {c.sourceIPs.slice(0, 10).map(ip => (
+                          <span key={ip} className={styles.ipChip}>{ip}</span>
+                        ))}
+                        {c.sourceIPs.length > 10 && (
+                          <span className={styles.ipMore}>+{c.sourceIPs.length - 10} more</span>
+                        )}
                       </div>
                     )}
                     {c.recommendation && (
@@ -131,8 +176,12 @@ export default function CorrelationPage() {
           ) : history.map((h, i) => (
             <div key={h._id ?? h.id ?? i} className={styles.histCard}>
               <div className={styles.histTop}>
-                <span className={styles.histTime}>{h.createdAt ? new Date(h.createdAt).toLocaleString() : '—'}</span>
-                <span className={styles.histClusters}>{h.clusterCount ?? h.clusters?.length ?? '?'} clusters</span>
+                <span className={styles.histTime}>
+                  {h.createdAt ? new Date(h.createdAt).toLocaleString() : '—'}
+                </span>
+                <span className={styles.histClusters}>
+                  {h.clusterCount ?? h.clusters?.length ?? '?'} clusters
+                </span>
               </div>
               {h.summary && <p className={styles.histSummary}>{h.summary}</p>}
             </div>
