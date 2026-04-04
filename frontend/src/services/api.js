@@ -8,7 +8,6 @@ const http = axios.create({
   headers: { 'Content-Type': 'application/json' },
 });
 
-// Response interceptor
 http.interceptors.response.use(
   (res) => res,
   (err) => {
@@ -20,7 +19,7 @@ http.interceptors.response.use(
 const unwrap = (res) => res.data?.data ?? res.data;
 
 /* ─────────────────────────────────────────────────────────────
-   FLAT EXPORTS  (original — keep for backwards compat)
+   FLAT EXPORTS
 ───────────────────────────────────────────────────────────── */
 
 /* Stats */
@@ -43,26 +42,30 @@ export const getRecentLogs      = (limit = 100) => http.get(`/api/logs/recent?li
 export const getServiceStatus   = ()            => http.get('/api/service-status').then(unwrap);
 export const getHealth          = ()            => http.get('/api/health').then(unwrap);
 
-/* IP Intelligence
-   FIXED: getIpIntel was calling /api/intel/:ip (non-existent route).
-   Correct backend path is /api/geo/ip/:ip (geoIntel.js router).
-   Added getGeoHeatmap() and getGeoStats() for ExplorePage. */
+/* IP / Geo Intelligence */
 export const getIpIntel         = (ip)          => http.get(`/api/geo/ip/${encodeURIComponent(ip)}`).then(unwrap);
 export const getGeoHeatmap      = ()            => http.get('/api/geo/heatmap').then(unwrap);
 export const getGeoStats        = ()            => http.get('/api/geo/stats').then(unwrap);
 export const getGeoThreats      = ()            => http.get('/api/geo/threats').then(unwrap);
 export const getTopSources      = ()            => http.get('/api/geo/top-sources').then(unwrap);
 
-/* PCAP */
+/* PCAP
+   uploadPcap: sends field name 'pcap' (canonical) — backend accepts 'pcap' OR 'file'.
+   getSessions: GET /api/pcap  — reads from MongoDB, no microservice needed.
+   analyzePcap: re-uses the upload endpoint for re-processing; when microservice is
+                offline the backend returns 503 PCAP_PROCESSOR_OFFLINE with a clear message.
+*/
 export const uploadPcap = (file, projectId = 'pcap-upload') => {
   const form = new FormData();
-  form.append('pcap', file);
+  form.append('pcap', file);          // canonical field name expected by multer
   form.append('projectId', projectId);
   return http.post('/api/pcap/upload', form, {
     headers: { 'Content-Type': 'multipart/form-data' },
-  }).then(unwrap);
+    timeout: 300_000,
+  });
 };
-export const getPcapJobs        = ()            => http.get('/api/pcap/jobs').then(unwrap);
+export const getPcapSessions    = (limit = 100) => http.get(`/api/pcap?limit=${limit}`).then(unwrap);
+export const getPcapJobs        = (limit = 100) => http.get(`/api/pcap/jobs?limit=${limit}`).then(unwrap);
 export const getPcapJob         = (id)          => http.get(`/api/pcap/jobs/${id}`).then(unwrap);
 
 /* Blocklist */
@@ -117,24 +120,24 @@ export const BASE_URL = BASE;
 ───────────────────────────────────────────────────────────── */
 
 export const statsAPI = {
-  getSummary:    getStats,
-  get:           getStats,
+  getSummary: getStats,
+  get:        getStats,
 };
 
 export const attacksAPI = {
-  getRecent:     getRecentAttacks,
-  getById:       getAttack,
-  getForensics:  getForensics,
+  getRecent:    getRecentAttacks,
+  getById:      getAttack,
+  getForensics: getForensics,
 };
 
 export const alertsAPI = {
-  getAll:        (params) => getAlerts(params),
-  markRead:      markAlertRead,
-  markAllRead:   markAllAlertsRead,
+  getAll:      (params) => getAlerts(params),
+  markRead:    markAlertRead,
+  markAllRead: markAllAlertsRead,
 };
 
 export const logsAPI = {
-  getRecent:     getRecentLogs,
+  getRecent: getRecentLogs,
 };
 
 export const healthAPI = {
@@ -151,46 +154,54 @@ export const ipAPI = {
 };
 
 export const pcapAPI = {
-  upload:        uploadPcap,
-  getJobs:       getPcapJobs,
-  getJob:        getPcapJob,
+  // Upload a .pcap file for processing (requires pcap-processor microservice on :8003)
+  upload:      uploadPcap,
+
+  // List attack events from MongoDB — works WITHOUT microservice
+  getSessions: getPcapSessions,
+  getJobs:     getPcapJobs,
+  getJob:      getPcapJob,
 };
 
 export const blocklistAPI = {
-  getAll:        getBlocklist,
-  check:         checkBlockedIP,
-  block:         blockIP,
-  unblock:       unblockIP,
+  getAll:    getBlocklist,
+  check:     checkBlockedIP,
+  // canonical names
+  block:     blockIP,
+  unblock:   unblockIP,
+  // aliases used by BlocklistPage
+  addEntry:  blockIP,
+  remove:    unblockIP,
 };
 
 export const nexusAPI = {
-  getPending:    getPendingActions,
-  approve:       approveAction,
-  reject:        rejectAction,
-  getHistory:    getActionHistory,
+  getPending:  getPendingActions,
+  approve:     approveAction,
+  reject:      rejectAction,
+  getHistory:  getActionHistory,
 };
 
 export const auditAPI = {
-  getLog:        getAuditLog,
+  getLog: getAuditLog,
 };
 
 export const simulateAPI = {
-  getAll:        getSimulations,
-  run:           runSimulation,
-  mutate:        geminiMutate,
+  getAll:  getSimulations,
+  run:     runSimulation,
+  mutate:  geminiMutate,
 };
 
 export const correlationAPI = {
-  getAll:        getCorrelations,
-  run:           geminiCorrelate,
-  getHistory:    geminiCorrelateHistory,
+  getAll:      getCorrelations,
+  run:         geminiCorrelate,
+  getHistory:  geminiCorrelateHistory,
 };
 
 export const aiAPI = {
-  chat:          geminiChat,
-  chatStream:    geminiChatStream,
-  report:        geminiReport,
-  reportExport:  geminiReportExportUrl,
-  correlate:     geminiCorrelate,
-  mutate:        geminiMutate,
+  chat:         geminiChat,
+  chatStream:   geminiChatStream,
+  report:       geminiReport,
+  reportExport: geminiReportExportUrl,
+  correlate:    geminiCorrelate,
+  mutate:       geminiMutate,
 };
