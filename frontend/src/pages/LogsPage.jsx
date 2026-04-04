@@ -1,6 +1,6 @@
 import { useState, useEffect, useRef, useCallback } from 'react';
 import { logsAPI } from '../services/api';
-import { getSocket, SOCKET_EVENTS } from '../services/socket';
+import { connectSocket, disconnectSocket, SOCKET_EVENTS } from '../services/socket';
 import styles from './LogsPage.module.css';
 
 const LEVELS = ['all', 'error', 'warn', 'info', 'debug'];
@@ -14,18 +14,20 @@ const LEVEL_COLORS = {
 
 function fmt(ts) {
   if (!ts) return '—';
-  return new Date(ts).toLocaleTimeString('en-US', { hour12: false, hour: '2-digit', minute: '2-digit', second: '2-digit' });
+  return new Date(ts).toLocaleTimeString('en-US', {
+    hour12: false, hour: '2-digit', minute: '2-digit', second: '2-digit',
+  });
 }
 
 export default function LogsPage() {
-  const [logs, setLogs]           = useState([]);
-  const [loading, setLoading]     = useState(true);
-  const [level, setLevel]         = useState('all');
-  const [search, setSearch]       = useState('');
+  const [logs, setLogs]             = useState([]);
+  const [loading, setLoading]       = useState(true);
+  const [level, setLevel]           = useState('all');
+  const [search, setSearch]         = useState('');
   const [autoScroll, setAutoScroll] = useState(true);
-  const [paused, setPaused]       = useState(false);
-  const bottomRef = useRef(null);
-  const pausedRef = useRef(paused);
+  const [paused, setPaused]         = useState(false);
+  const bottomRef  = useRef(null);
+  const pausedRef  = useRef(paused);
   pausedRef.current = paused;
 
   const load = useCallback(async () => {
@@ -39,17 +41,24 @@ export default function LogsPage() {
 
   useEffect(() => { load(); }, [load]);
 
-  // Live stream via socket
+  // ── Real-time log stream via socket
   useEffect(() => {
-    const socket = getSocket();
-    socket.on(SOCKET_EVENTS.NEW_LOG, (log) => {
+    const socket = connectSocket();
+
+    const onNewLog = (log) => {
       if (pausedRef.current) return;
       setLogs(prev => [...prev, log].slice(-500));
-    });
-    return () => socket.off(SOCKET_EVENTS.NEW_LOG);
+    };
+
+    socket.on(SOCKET_EVENTS.NEW_LOG, onNewLog);
+
+    return () => {
+      socket.off(SOCKET_EVENTS.NEW_LOG, onNewLog);
+      disconnectSocket();
+    };
   }, []);
 
-  // Auto-scroll
+  // Auto-scroll to bottom
   useEffect(() => {
     if (autoScroll && !paused) {
       bottomRef.current?.scrollIntoView({ behavior: 'smooth' });
@@ -58,8 +67,9 @@ export default function LogsPage() {
 
   const filtered = logs.filter(l => {
     const lv = l.level?.toLowerCase() ?? 'info';
-    const matchLevel = level === 'all' || lv === level;
-    const matchSearch = !search ||
+    const matchLevel  = level === 'all' || lv === level;
+    const matchSearch =
+      !search ||
       l.message?.toLowerCase().includes(search.toLowerCase()) ||
       l.service?.toLowerCase().includes(search.toLowerCase());
     return matchLevel && matchSearch;
@@ -102,7 +112,11 @@ export default function LogsPage() {
             <button
               key={l}
               className={`${styles.levTab} ${level === l ? styles.levTabActive : ''}`}
-              style={level === l && l !== 'all' ? { color: LEVEL_COLORS[l], borderColor: LEVEL_COLORS[l] + '44' } : {}}
+              style={
+                level === l && l !== 'all'
+                  ? { color: LEVEL_COLORS[l], borderColor: LEVEL_COLORS[l] + '44' }
+                  : {}
+              }
               onClick={() => setLevel(l)}
             >{l.toUpperCase()}</button>
           ))}
@@ -117,14 +131,20 @@ export default function LogsPage() {
           <div className={styles.termEmpty}>No logs match the current filter.</div>
         ) : (
           filtered.map((l, i) => {
-            const lv = l.level?.toLowerCase() ?? 'info';
+            const lv    = l.level?.toLowerCase() ?? 'info';
             const color = LEVEL_COLORS[lv] ?? '#718096';
             return (
               <div key={l._id ?? l.id ?? i} className={styles.logRow}>
                 <span className={styles.logTime}>{fmt(l.timestamp ?? l.createdAt)}</span>
-                <span className={styles.logLevel} style={{ color }}>{lv.toUpperCase().padEnd(5)}</span>
-                <span className={styles.logService}>{(l.service ?? 'system').padEnd(12)}</span>
-                <span className={styles.logMsg}>{l.message ?? l.msg ?? JSON.stringify(l)}</span>
+                <span className={styles.logLevel} style={{ color }}>
+                  {lv.toUpperCase().padEnd(5)}
+                </span>
+                <span className={styles.logService}>
+                  {(l.service ?? 'system').padEnd(12)}
+                </span>
+                <span className={styles.logMsg}>
+                  {l.message ?? l.msg ?? JSON.stringify(l)}
+                </span>
               </div>
             );
           })
