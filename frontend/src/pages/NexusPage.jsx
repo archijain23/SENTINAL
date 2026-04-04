@@ -1,9 +1,9 @@
 import { useState, useEffect, useCallback } from 'react';
 import { nexusAPI, healthAPI } from '../services/api';
-import { getSocket, SOCKET_EVENTS } from '../services/socket';
+import { connectSocket, disconnectSocket, SOCKET_EVENTS } from '../services/socket';
 import SeverityBadge from '../components/ui/SeverityBadge';
-import StatusDot from '../components/ui/StatusDot';
-import styles from './NexusPage.module.css';
+import StatusDot     from '../components/ui/StatusDot';
+import styles        from './NexusPage.module.css';
 
 const TABS = ['queue', 'history'];
 
@@ -13,13 +13,13 @@ function timeStr(ts) {
 }
 
 export default function NexusPage() {
-  const [tab,       setTab]       = useState('queue');
-  const [queue,     setQueue]     = useState([]);
-  const [history,   setHistory]   = useState([]);
-  const [agentUp,   setAgentUp]   = useState(null);
-  const [loading,   setLoading]   = useState(true);
-  const [acting,    setActing]    = useState(null);
-  const [error,     setError]     = useState(null);
+  const [tab,     setTab]     = useState('queue');
+  const [queue,   setQueue]   = useState([]);
+  const [history, setHistory] = useState([]);
+  const [agentUp, setAgentUp] = useState(null);
+  const [loading, setLoading] = useState(true);
+  const [acting,  setActing]  = useState(null);
+  const [error,   setError]   = useState(null);
 
   const loadQueue = useCallback(async () => {
     try {
@@ -36,7 +36,6 @@ export default function NexusPage() {
 
   useEffect(() => {
     loadQueue();
-    // Check nexus-agent health
     healthAPI.serviceStatus()
       .then(res => {
         const svcs = Array.isArray(res) ? res : res?.services ?? [];
@@ -46,17 +45,39 @@ export default function NexusPage() {
       .catch(() => setAgentUp(false));
   }, [loadQueue]);
 
-  // Live queue updates
+  // ── Real-time: queue updates + action decisions via socket
   useEffect(() => {
-    const s = getSocket();
-    s.on(SOCKET_EVENTS.QUEUE_UPDATE, (item) => {
+    const socket = connectSocket();
+
+    // New or updated item in the action queue
+    const onQueueUpdate = (item) => {
       setQueue(prev => {
         const exists = prev.find(a => a._id === item._id || a.id === item.id);
-        if (exists) return prev.map(a => (a._id === item._id || a.id === item.id) ? { ...a, ...item } : a);
+        if (exists)
+          return prev.map(a =>
+            (a._id === item._id || a.id === item.id) ? { ...a, ...item } : a
+          );
         return [item, ...prev];
       });
-    });
-    return () => s.off(SOCKET_EVENTS.QUEUE_UPDATE);
+    };
+
+    // An action was approved / rejected remotely (e.g. by another operator)
+    const onActionDecision = ({ id, decision }) => {
+      setQueue(prev => prev.filter(a => (a._id ?? a.id) !== id));
+      // Reload history so the decided item appears immediately
+      nexusAPI.getHistory(50)
+        .then(h => setHistory(Array.isArray(h) ? h : h?.actions ?? []))
+        .catch(() => {});
+    };
+
+    socket.on(SOCKET_EVENTS.QUEUE_UPDATE,    onQueueUpdate);
+    socket.on(SOCKET_EVENTS.ACTION_DECISION, onActionDecision);
+
+    return () => {
+      socket.off(SOCKET_EVENTS.QUEUE_UPDATE,    onQueueUpdate);
+      socket.off(SOCKET_EVENTS.ACTION_DECISION, onActionDecision);
+      disconnectSocket();
+    };
   }, []);
 
   const decide = async (id, action) => {
@@ -65,7 +86,8 @@ export default function NexusPage() {
       if (action === 'approve') await nexusAPI.approve(id);
       else                      await nexusAPI.reject(id);
       setQueue(prev => prev.filter(a => (a._id ?? a.id) !== id));
-      await nexusAPI.getHistory(50).then(h => setHistory(Array.isArray(h) ? h : h?.actions ?? []));
+      const h = await nexusAPI.getHistory(50);
+      setHistory(Array.isArray(h) ? h : h?.actions ?? []);
     } catch (e) { setError(e.message); }
     setActing(null);
   };
@@ -82,7 +104,9 @@ export default function NexusPage() {
         </div>
         <div className={styles.agentStatus}>
           <StatusDot status={agentUp === null ? 'idle' : agentUp ? 'online' : 'offline'} />
-          <span className={styles.agentLabel}>{agentUp === null ? 'Checking…' : agentUp ? 'Agent Online' : 'Agent Offline'}</span>
+          <span className={styles.agentLabel}>
+            {agentUp === null ? 'Checking…' : agentUp ? 'Agent Online' : 'Agent Offline'}
+          </span>
           <button className={styles.refreshBtn} onClick={loadQueue} disabled={loading}>
             <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
               <polyline points="23 4 23 10 17 10"/><polyline points="1 20 1 14 7 14"/>
@@ -95,7 +119,11 @@ export default function NexusPage() {
       {/* Tabs */}
       <div className={styles.tabs}>
         {TABS.map(t => (
-          <button key={t} className={`${styles.tab} ${tab === t ? styles.tabActive : ''}`} onClick={() => setTab(t)}>
+          <button
+            key={t}
+            className={`${styles.tab} ${tab === t ? styles.tabActive : ''}`}
+            onClick={() => setTab(t)}
+          >
             {t === 'queue' ? `Queue${pending > 0 ? ` (${pending})` : ''}` : 'History'}
           </button>
         ))}
@@ -123,9 +151,13 @@ export default function NexusPage() {
                 <div className={styles.cardTop}>
                   <div className={styles.cardLeft}>
                     <SeverityBadge level={sev} />
-                    <span className={styles.actionType}>{item.action ?? item.type ?? 'Unknown Action'}</span>
+                    <span className={styles.actionType}>
+                      {item.action ?? item.type ?? 'Unknown Action'}
+                    </span>
                   </div>
-                  <span className={styles.cardTime}>{timeStr(item.createdAt ?? item.timestamp)}</span>
+                  <span className={styles.cardTime}>
+                    {timeStr(item.createdAt ?? item.timestamp)}
+                  </span>
                 </div>
                 {item.reason && <p className={styles.cardReason}>{item.reason}</p>}
                 <div className={styles.cardMeta}>
@@ -137,9 +169,14 @@ export default function NexusPage() {
                   <div className={styles.confidenceBar}>
                     <span className={styles.confLabel}>Confidence</span>
                     <div className={styles.barTrack}>
-                      <div className={styles.barFill} style={{ width: `${Math.round(item.confidence * 100)}%` }} />
+                      <div
+                        className={styles.barFill}
+                        style={{ width: `${Math.round(item.confidence * 100)}%` }}
+                      />
                     </div>
-                    <span className={styles.confValue}>{Math.round(item.confidence * 100)}%</span>
+                    <span className={styles.confValue}>
+                      {Math.round(item.confidence * 100)}%
+                    </span>
                   </div>
                 )}
                 <div className={styles.cardActions}>
@@ -175,18 +212,28 @@ export default function NexusPage() {
             </thead>
             <tbody>
               {history.length === 0 ? (
-                <tr><td colSpan={5}><div className={styles.empty}><p>No history yet</p></div></td></tr>
+                <tr>
+                  <td colSpan={5}>
+                    <div className={styles.empty}><p>No history yet</p></div>
+                  </td>
+                </tr>
               ) : history.map((h, i) => (
                 <tr key={h._id ?? h.id ?? i}>
                   <td className={styles.histAction}>{h.action ?? h.type ?? '—'}</td>
                   <td className={styles.histMono}>{h.targetIP ?? h.sourceIP ?? '—'}</td>
                   <td>
-                    <span className={h.decision === 'approved' ? styles.decApproved : styles.decRejected}>
+                    <span className={
+                      h.decision === 'approved' ? styles.decApproved : styles.decRejected
+                    }>
                       {h.decision ?? '—'}
                     </span>
                   </td>
-                  <td className={styles.histMono}>{h.decidedBy ?? h.approvedBy ?? h.rejectedBy ?? '—'}</td>
-                  <td className={styles.histMono}>{timeStr(h.decidedAt ?? h.createdAt)}</td>
+                  <td className={styles.histMono}>
+                    {h.decidedBy ?? h.approvedBy ?? h.rejectedBy ?? '—'}
+                  </td>
+                  <td className={styles.histMono}>
+                    {timeStr(h.decidedAt ?? h.createdAt)}
+                  </td>
                 </tr>
               ))}
             </tbody>
