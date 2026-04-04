@@ -1,15 +1,19 @@
 /**
  * KpiCard — single metric tile for the dashboard top row.
+ *
  * Props:
- *   label    {string}  — metric name
- *   value    {string}  — formatted value to display
- *   trend    {string}  — trend string e.g. "+12%" or "-2"
- *   trendUp  {boolean} — true = positive direction
- *   accent   {string}  — hex color for the glow/icon
- *   icon     {ReactNode}
+ *   label       {string}    — metric name
+ *   value       {string}    — formatted value to display
+ *   trend       {string}    — trend string e.g. "+12%" or "—" (falsy = suppress row)
+ *   trendUp     {boolean}   — true = positive direction (green), false = negative (red)
+ *   trendLabel  {string}    — override "vs yesterday" copy
+ *   accent      {string}    — hex color for the glow/icon
+ *   icon        {ReactNode}
+ *   loading     {boolean}   — show skeleton shimmer
  */
-export default function KpiCard({ label, value, trend, trendUp, accent, icon }) {
+export default function KpiCard({ label, value, trend, trendUp, trendLabel, accent = '#00F5FF', icon, loading }) {
   const trendColor = trendUp ? '#00FF88' : '#FF3D71';
+  const hasTrend   = trend && String(trend).trim() !== '' && String(trend).trim() !== '—';
 
   return (
     <article
@@ -45,37 +49,53 @@ export default function KpiCard({ label, value, trend, trendUp, accent, icon }) 
         </span>
       </div>
 
-      {/* Value */}
-      <p
-        className="text-2xl font-display font-bold tabular-nums leading-none"
-        style={{ color: '#E2E8F0' }}
-      >
-        {value}
-      </p>
-
-      {/* Trend */}
-      <div className="flex items-center gap-1.5">
-        <svg
-          width="10" height="10" viewBox="0 0 10 10" fill="none"
-          aria-hidden="true"
-          style={{ transform: trendUp ? 'rotate(0deg)' : 'rotate(180deg)', transition: 'transform 0.2s' }}
+      {/* Value — skeleton when loading */}
+      {loading ? (
+        <div
+          style={{
+            height: '28px', width: '60%', borderRadius: 4,
+            background: 'linear-gradient(90deg, rgba(61,70,99,0.3) 25%, rgba(61,70,99,0.5) 50%, rgba(61,70,99,0.3) 75%)',
+            backgroundSize: '200% 100%',
+            animation: 'shimmer 1.5s ease-in-out infinite',
+          }}
+        />
+      ) : (
+        <p
+          className="text-2xl font-mono font-bold tabular-nums leading-none"
+          style={{ color: '#E2E8F0' }}
         >
-          <path d="M5 8V2M2 5l3-3 3 3" stroke={trendColor} strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round"/>
-        </svg>
-        <span className="text-[10px] font-mono tabular-nums" style={{ color: trendColor }}>
-          {trend}
-        </span>
-        <span className="text-[9px] font-mono" style={{ color: '#3D4663' }}>vs yesterday</span>
-      </div>
+          {value ?? '—'}
+        </p>
+      )}
+
+      {/* Trend — only rendered when a meaningful trend value exists */}
+      {hasTrend && !loading && (
+        <div className="flex items-center gap-1.5">
+          <svg
+            width="10" height="10" viewBox="0 0 10 10" fill="none"
+            aria-hidden="true"
+            style={{ transform: trendUp ? 'rotate(0deg)' : 'rotate(180deg)', transition: 'transform 0.2s' }}
+          >
+            <path d="M5 8V2M2 5l3-3 3 3" stroke={trendColor} strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round"/>
+          </svg>
+          <span className="text-[10px] font-mono tabular-nums" style={{ color: trendColor }}>
+            {trend}
+          </span>
+          <span className="text-[9px] font-mono" style={{ color: '#3D4663' }}>
+            {trendLabel ?? 'vs yesterday'}
+          </span>
+        </div>
+      )}
     </article>
   );
 }
 
 // Utility: convert hex to "r,g,b" string for rgba()
-function hexToRgb(hex) {
+function hexToRgb(hex = '#000000') {
   const h = hex.replace('#', '');
   const n = parseInt(h.length === 3
-    ? h.split('').map(c => c+c).join('')
+    ? h.split('').map(c => c + c).join('')
     : h, 16);
+  if (isNaN(n)) return '0,0,0';
   return `${(n >> 16) & 255},${(n >> 8) & 255},${n & 255}`;
 }
