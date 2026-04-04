@@ -1,10 +1,14 @@
 /**
  * SENTINAL — Geo-IP Intelligence Routes
- * =======================================
- * GET /api/geo/heatmap    — country-level attack heatmap (aggregated from MongoDB)
- * GET /api/geo/ip/:ip     — lookup a specific IP's geo + abuse data (MongoDB-direct)
- * GET /api/geo/stats      — top attacking countries, ISPs, TOR/proxy stats
+ * ===========================================
+ * GET /api/geo/heatmap     — country-level heatmap (aggregated)
+ * GET /api/geo/threats     — recent attack events with geo data (GeoPage feed)
+ * GET /api/geo/top-sources — top attacking IPs by event count
+ * GET /api/geo/ip/:ip      — single-IP geo lookup (MongoDB-direct)
+ * GET /api/geo/stats       — summary stats: countries, TOR, proxy counts
  */
+
+'use strict';
 
 const express     = require('express');
 const router      = express.Router();
@@ -12,9 +16,7 @@ const AttackEvent = require('../models/AttackEvent');
 const logger      = require('../utils/logger');
 
 
-// ── GET /api/geo/heatmap ─────────────────────────────────────────────────────
-// Aggregates attack counts per country from MongoDB AttackEvents.
-// Returns data ready for Leaflet / D3 world map rendering.
+// ── GET /api/geo/heatmap ──────────────────────────────────────────────────────
 router.get('/heatmap', async (req, res) => {
   try {
     const pipeline = [
@@ -60,13 +62,119 @@ router.get('/heatmap', async (req, res) => {
 });
 
 
-// ── GET /api/geo/ip/:ip ───────────────────────────────────────────────────────
-// Looks up geo-intel for a single IP by querying the AttackEvent collection
-// directly in MongoDB. Returns the geoIntel subdocument from the most recent
-// event for that IP, or { data: null } if the IP has no stored geo data yet.
-//
-// This route is intentionally independent of the Detection Engine microservice
-// so it works correctly even when :8002 is unreachable (development / demo mode).
+// ── GET /api/geo/threats ─────────────────────────────────────────────────────
+// Recent AttackEvents with geo enrichment — primary data source for GeoPage.
+// Returns ALL events (with or without geoIntel) so the table is never empty
+// when attacks exist. Events without geoIntel show "Unknown" location and no
+// map dot (lat/lng will be null).
+router.get('/threats', async (req, res) => {
+  try {
+    const limit = Math.min(parseInt(req.query.limit, 10) || 100, 500);
+
+    // Aggregate per-IP: count events, take most recent geo + severity
+    const pipeline = [
+      { $sort: { createdAt: -1 } },
+      {
+        $group: {
+          _id:        '$ip',
+          ip:         { $first: '$ip' },
+          attackType: { $first: '$attackType' },
+          severity:   { $first: '$severity' },
+          status:     { $first: '$status' },
+          count:      { $sum: 1 },
+          lastSeen:   { $first: '$createdAt' },
+          geoIntel:   { $first: '$geoIntel' },
+        }
+      },
+      { $sort: { count: -1 } },
+      { $limit: limit },
+    ];
+
+    const results = await AttackEvent.aggregate(pipeline);
+
+    const threats = results.map(r => {
+      const g = r.geoIntel || {};
+      return {
+        id:         r._id,
+        ip:         r.ip,
+        attackType: r.attackType,
+        severity:   r.severity,
+        status:     r.status,
+        count:      r.count,
+        lastSeen:   r.lastSeen,
+        country:    g.country    || 'Unknown',
+        country_code: g.country_code || null,
+        city:       g.city       || null,
+        latitude:   g.latitude   ?? null,
+        longitude:  g.longitude  ?? null,
+        isp:        g.isp        || null,
+        is_tor:     g.is_tor     ?? false,
+        is_proxy:   g.is_proxy   ?? false,
+        is_hosting: g.is_hosting ?? false,
+        abuse_confidence_score: g.abuse_confidence_score ?? null,
+      };
+    });
+
+    logger.info(`[GEO] threats: returned ${threats.length} unique IPs`);
+    return res.json({ success: true, data: threats });
+  } catch (err) {
+    logger.error(`[GEO] threats error: ${err.message}`);
+    return res.status(500).json({ success: false, error: err.message });
+  }
+});
+
+
+// ── GET /api/geo/top-sources ─────────────────────────────────────────────────
+// Top 20 IPs by event count. Same shape as /threats but limited + sorted.
+router.get('/top-sources', async (req, res) => {
+  try {
+    const pipeline = [
+      { $sort: { createdAt: -1 } },
+      {
+        $group: {
+          _id:        '$ip',
+          ip:         { $first: '$ip' },
+          attackType: { $first: '$attackType' },
+          severity:   { $first: '$severity' },
+          count:      { $sum: 1 },
+          lastSeen:   { $first: '$createdAt' },
+          geoIntel:   { $first: '$geoIntel' },
+        }
+      },
+      { $sort: { count: -1 } },
+      { $limit: 20 },
+    ];
+
+    const results = await AttackEvent.aggregate(pipeline);
+
+    const sources = results.map(r => {
+      const g = r.geoIntel || {};
+      return {
+        ip:         r.ip,
+        attackType: r.attackType,
+        severity:   r.severity,
+        count:      r.count,
+        lastSeen:   r.lastSeen,
+        country:    g.country   || 'Unknown',
+        country_code: g.country_code || null,
+        city:       g.city      || null,
+        latitude:   g.latitude  ?? null,
+        longitude:  g.longitude ?? null,
+        is_tor:     g.is_tor    ?? false,
+        is_proxy:   g.is_proxy  ?? false,
+        abuse_confidence_score: g.abuse_confidence_score ?? null,
+      };
+    });
+
+    return res.json({ success: true, data: sources });
+  } catch (err) {
+    logger.error(`[GEO] top-sources error: ${err.message}`);
+    return res.status(500).json({ success: false, error: err.message });
+  }
+});
+
+
+// ── GET /api/geo/ip/:ip ────────────────────────────────────────────────────────
 router.get('/ip/:ip', async (req, res) => {
   const { ip } = req.params;
 
@@ -75,8 +183,6 @@ router.get('/ip/:ip', async (req, res) => {
   }
 
   try {
-    // Find the most recent AttackEvent for this IP that has geo data populated.
-    // We project only the geoIntel subdoc to keep the query lightweight.
     const event = await AttackEvent
       .findOne(
         { ip: ip.trim(), 'geoIntel.country_code': { $exists: true, $ne: null } },
@@ -86,15 +192,11 @@ router.get('/ip/:ip', async (req, res) => {
       .lean();
 
     if (!event || !event.geoIntel) {
-      // IP exists in the system but has no geo enrichment yet — not an error.
       logger.info(`[GEO] no geo data found for IP: ${ip}`);
       return res.json({ success: true, data: null });
     }
 
     const g = event.geoIntel;
-
-    // Normalise to a flat shape that matches what SimulatePage consumes:
-    //   log.geoIntel.country, .tor_count, .proxy_count
     const data = {
       country:                g.country               || null,
       country_code:           g.country_code          || null,
@@ -107,7 +209,6 @@ router.get('/ip/:ip', async (req, res) => {
       is_proxy:               g.is_proxy              ?? false,
       is_hosting:             g.is_hosting            ?? false,
       abuse_confidence_score: g.abuse_confidence_score ?? 0,
-      // Alias counts used by SimulatePage log display
       tor_count:   g.is_tor   ? 1 : 0,
       proxy_count: g.is_proxy ? 1 : 0,
     };
@@ -123,7 +224,6 @@ router.get('/ip/:ip', async (req, res) => {
 
 
 // ── GET /api/geo/stats ────────────────────────────────────────────────────────
-// Top 10 attacking countries, TOR/proxy/abuse stats summary.
 router.get('/stats', async (req, res) => {
   try {
     const [topCountries, threatFlags] = await Promise.all([
@@ -163,5 +263,6 @@ router.get('/stats', async (req, res) => {
     return res.status(500).json({ success: false, error: err.message });
   }
 });
+
 
 module.exports = router;
