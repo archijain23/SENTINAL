@@ -1,31 +1,20 @@
-import { Outlet } from 'react-router-dom';
+import React, { useState } from 'react';
+import { Outlet, useLocation } from 'react-router-dom';
 import Sidebar from './Sidebar';
-import TopBar from './TopBar';
+import TopBar  from './TopBar';
+import styles  from './AppShell.module.css';
 
 export default function AppShell() {
-  return (
-    <div
-      className="flex h-screen overflow-hidden"
-      style={{ background: '#0B0F19' }}
-    >
-      {/* Sidebar */}
-      <Sidebar />
+  const [collapsed, setCollapsed] = useState(false);
+  const location = useLocation();
 
-      {/* Main content area */}
-      <div className="flex flex-col flex-1 min-w-0 overflow-hidden">
-        <TopBar />
-        <main
-          className="flex-1 overflow-y-auto"
-          style={{
-            background: '#0B0F19',
-            backgroundImage:
-              'linear-gradient(rgba(0,245,255,0.02) 1px, transparent 1px), linear-gradient(90deg, rgba(0,245,255,0.02) 1px, transparent 1px)',
-            backgroundSize: '40px 40px',
-          }}
-        >
-          <div className="p-6 max-w-[1440px] mx-auto">
-            <Outlet />
-          </div>
+  return (
+    <div className={`${styles.shell} ${collapsed ? styles.collapsed : ''}`}>
+      <Sidebar collapsed={collapsed} onToggle={() => setCollapsed(c => !c)} />
+      <div className={styles.main}>
+        <TopBar collapsed={collapsed} />
+        <main className={styles.content} key={location.pathname}>
+          <Outlet />
         </main>
       </div>
     </div>

@@ -1,0 +1,141 @@
+/* SENTINAL Design System — Dark Cyber Theme */
+:root {
+  /* Type Scale */
+  --text-xs:   clamp(0.75rem, 0.7rem + 0.25vw, 0.875rem);
+  --text-sm:   clamp(0.875rem, 0.8rem + 0.35vw, 1rem);
+  --text-base: clamp(1rem, 0.95rem + 0.25vw, 1.125rem);
+  --text-lg:   clamp(1.125rem, 1rem + 0.75vw, 1.5rem);
+  --text-xl:   clamp(1.5rem, 1.2rem + 1.25vw, 2.25rem);
+  --text-2xl:  clamp(2rem, 1.2rem + 2.5vw, 3.5rem);
+  --text-hero: clamp(2.5rem, 1rem + 5vw, 6rem);
+
+  /* Spacing */
+  --space-1: 0.25rem;
+  --space-2: 0.5rem;
+  --space-3: 0.75rem;
+  --space-4: 1rem;
+  --space-5: 1.25rem;
+  --space-6: 1.5rem;
+  --space-8: 2rem;
+  --space-10: 2.5rem;
+  --space-12: 3rem;
+  --space-16: 4rem;
+  --space-20: 5rem;
+  --space-24: 6rem;
+
+  /* Radius */
+  --radius-sm: 0.25rem;
+  --radius-md: 0.5rem;
+  --radius-lg: 0.75rem;
+  --radius-xl: 1rem;
+  --radius-full: 9999px;
+
+  /* Transitions */
+  --transition-fast: 120ms cubic-bezier(0.16, 1, 0.3, 1);
+  --transition-base: 200ms cubic-bezier(0.16, 1, 0.3, 1);
+  --transition-slow: 350ms cubic-bezier(0.16, 1, 0.3, 1);
+
+  /* Content widths */
+  --content-narrow: 640px;
+  --content-default: 1024px;
+  --content-wide: 1400px;
+
+  /* Sidebar */
+  --sidebar-width: 240px;
+  --sidebar-collapsed: 64px;
+  --topbar-height: 56px;
+
+  /* Fonts */
+  --font-display: 'Syne', 'Inter', sans-serif;
+  --font-body: 'Inter', system-ui, sans-serif;
+  --font-mono: 'JetBrains Mono', 'Fira Code', monospace;
+}
+
+/* Dark theme (default) */
+:root, [data-theme="dark"] {
+  /* Backgrounds */
+  --color-bg:              #0a0b0e;
+  --color-surface:         #0e1117;
+  --color-surface-2:       #131720;
+  --color-surface-3:       #181e2a;
+  --color-surface-hover:   #1c2333;
+  --color-border:          rgba(255,255,255,0.07);
+  --color-border-strong:   rgba(255,255,255,0.12);
+  --color-divider:         rgba(255,255,255,0.05);
+
+  /* Text */
+  --color-text:            #e2e8f0;
+  --color-text-muted:      #8892a4;
+  --color-text-faint:      #4a5568;
+  --color-text-inverse:    #0a0b0e;
+
+  /* Primary — Cyan/Teal (cyber accent) */
+  --color-primary:         #00d4ff;
+  --color-primary-dim:     #00a8cc;
+  --color-primary-hover:   #33ddff;
+  --color-primary-bg:      rgba(0, 212, 255, 0.08);
+  --color-primary-border:  rgba(0, 212, 255, 0.2);
+
+  /* Danger — Red */
+  --color-danger:          #ff4757;
+  --color-danger-dim:      #cc3848;
+  --color-danger-bg:       rgba(255, 71, 87, 0.1);
+  --color-danger-border:   rgba(255, 71, 87, 0.25);
+
+  /* Warning — Amber */
+  --color-warning:         #ffa502;
+  --color-warning-dim:     #cc8402;
+  --color-warning-bg:      rgba(255, 165, 2, 0.1);
+  --color-warning-border:  rgba(255, 165, 2, 0.25);
+
+  /* Success — Green */
+  --color-success:         #2ed573;
+  --color-success-dim:     #25aa5c;
+  --color-success-bg:      rgba(46, 213, 115, 0.1);
+  --color-success-border:  rgba(46, 213, 115, 0.25);
+
+  /* Info — Blue */
+  --color-info:            #5352ed;
+  --color-info-dim:        #4241be;
+  --color-info-bg:         rgba(83, 82, 237, 0.1);
+  --color-info-border:     rgba(83, 82, 237, 0.25);
+
+  /* Purple — AI/Gemini */
+  --color-ai:              #a855f7;
+  --color-ai-dim:          #8844cc;
+  --color-ai-bg:           rgba(168, 85, 247, 0.1);
+  --color-ai-border:       rgba(168, 85, 247, 0.25);
+
+  /* Shadows */
+  --shadow-sm: 0 1px 3px rgba(0,0,0,0.4);
+  --shadow-md: 0 4px 16px rgba(0,0,0,0.5);
+  --shadow-lg: 0 8px 32px rgba(0,0,0,0.6);
+  --shadow-glow-primary: 0 0 20px rgba(0, 212, 255, 0.15);
+  --shadow-glow-danger:  0 0 20px rgba(255, 71, 87, 0.15);
+}
+
+/* Light theme override */
+[data-theme="light"] {
+  --color-bg:              #f0f4f8;
+  --color-surface:         #ffffff;
+  --color-surface-2:       #f7fafc;
+  --color-surface-3:       #edf2f7;
+  --color-surface-hover:   #e2e8f0;
+  --color-border:          rgba(0,0,0,0.08);
+  --color-border-strong:   rgba(0,0,0,0.15);
+  --color-divider:         rgba(0,0,0,0.05);
+  --color-text:            #1a202c;
+  --color-text-muted:      #4a5568;
+  --color-text-faint:      #a0aec0;
+  --color-text-inverse:    #ffffff;
+  --color-primary:         #0099bb;
+  --color-primary-dim:     #007a99;
+  --color-primary-hover:   #00bbdd;
+  --color-primary-bg:      rgba(0, 153, 187, 0.08);
+  --color-primary-border:  rgba(0, 153, 187, 0.2);
+  --shadow-sm: 0 1px 3px rgba(0,0,0,0.08);
+  --shadow-md: 0 4px 16px rgba(0,0,0,0.1);
+  --shadow-lg: 0 8px 32px rgba(0,0,0,0.12);
+  --shadow-glow-primary: 0 0 20px rgba(0, 153, 187, 0.1);
+  --shadow-glow-danger:  0 0 20px rgba(255, 71, 87, 0.08);
+}

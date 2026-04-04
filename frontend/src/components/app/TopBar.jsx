@@ -1,49 +1,70 @@
-import { useLocation } from 'react-router-dom';
+import React, { useState } from 'react';
+import { useLocation, Link } from 'react-router-dom';
+import { useTheme } from '../../hooks/useTheme';
+import styles from './TopBar.module.css';
 
-const PAGE_TITLES = {
-  '/app/dashboard': { title: 'Command Center',  sub: 'Live threat monitoring' },
-  '/app/threats':   { title: 'Threat Feed',      sub: 'Detected attack events' },
-  '/app/pcap':      { title: 'PCAP Analyzer',    sub: 'Network packet analysis' },
-  '/app/blocklist': { title: 'IP Blocklist',     sub: 'Blocked address manager' },
-  '/app/nexus':     { title: 'Nexus AI',         sub: 'AI security analyst' },
-  '/app/settings':  { title: 'System Settings',  sub: 'Configuration & health' },
+const ROUTE_LABELS = {
+  '/dashboard':    'Dashboard',
+  '/explore':      'Explore',
+  '/attacks':      'Attacks',
+  '/alerts':       'Alerts',
+  '/logs':         'Logs',
+  '/pcap':         'PCAP Analyzer',
+  '/services':     'Services',
+  '/settings':     'Settings',
+  '/docs':         'Documentation',
+  '/action-queue': 'Action Queue',
+  '/audit':        'Audit Log',
+  '/simulate':     'Attack Simulator',
+  '/blocklist':    'Blocklist',
+  '/copilot':      'AI Copilot',
+  '/correlation':  'Correlation Engine',
+  '/geo':          'Geo Threat Map',
 };
 
 export default function TopBar() {
-  const { pathname } = useLocation();
-  const page = PAGE_TITLES[pathname] ?? { title: 'SENTINAL', sub: '' };
-  const now  = new Date().toLocaleTimeString('en-US', { hour12: false });
+  const location = useLocation();
+  const { theme, toggle } = useTheme();
+  const [time] = useState(() => new Date().toLocaleTimeString());
+
+  const label = ROUTE_LABELS[location.pathname] || 'SENTINAL';
+  const path = location.pathname.split('/').filter(Boolean);
 
   return (
-    <header
-      className="flex items-center justify-between px-6 py-3 shrink-0 border-b"
-      style={{ background: '#0D1117', borderColor: 'rgba(0,245,255,0.08)' }}
-    >
-      {/* Page title */}
-      <div>
-        <h1 className="text-sm font-display font-bold tracking-wider" style={{ color: '#E2E8F0' }}>
-          {page.title}
-        </h1>
-        <p className="text-[9px] font-mono uppercase tracking-widest" style={{ color: '#3D4663' }}>
-          {page.sub}
-        </p>
+    <header className={styles.topbar}>
+      {/* Breadcrumb */}
+      <div className={styles.left}>
+        <nav className={styles.breadcrumb} aria-label="breadcrumb">
+          <Link to="/dashboard" className={styles.crumb}>Home</Link>
+          {path.map((seg, i) => (
+            <React.Fragment key={seg}>
+              <span className={styles.crumbSep}>/</span>
+              <span className={i === path.length - 1 ? styles.crumbActive : styles.crumb}>
+                {seg.charAt(0).toUpperCase() + seg.slice(1).replace(/-/g, ' ')}
+              </span>
+            </React.Fragment>
+          ))}
+        </nav>
+        <h1 className={styles.pageTitle}>{label}</h1>
       </div>
 
-      {/* Right — clock + live badge */}
-      <div className="flex items-center gap-4">
-        {/* Live indicator */}
-        <div className="flex items-center gap-1.5">
-          <span
-            className="w-1.5 h-1.5 rounded-full"
-            style={{ background: '#00FF88', boxShadow: '0 0 6px #00FF88', animation: 'livePulse 2s ease-in-out infinite' }}
-          />
-          <span className="text-[9px] font-mono tracking-widest" style={{ color: '#00FF88' }}>LIVE</span>
-        </div>
+      {/* Right actions */}
+      <div className={styles.right}>
+        <span className={styles.clock} aria-label="Current time">{time}</span>
 
-        {/* System clock */}
-        <span className="text-[10px] font-mono tabular-nums" style={{ color: '#3D4663' }}>
-          SYS {now} IST
-        </span>
+        <button
+          className={styles.iconBtn}
+          onClick={toggle}
+          aria-label={`Switch to ${theme === 'dark' ? 'light' : 'dark'} mode`}
+        >
+          {theme === 'dark' ? '☀' : '☾'}
+        </button>
+
+        <Link to="/alerts" className={styles.iconBtn} aria-label="Alerts">
+          🔔
+        </Link>
+
+        <div className={styles.avatar} aria-label="User menu">A</div>
       </div>
     </header>
   );
