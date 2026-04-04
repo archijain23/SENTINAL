@@ -1,6 +1,11 @@
+# SENTINAL PCAP Processor — Python dependencies
+# FIX-A: pyshark==0.6 → pyshark==0.6.0 (canonical PEP 440 version string)
+#        pip>=24 may fail to resolve '==0.6' on some resolvers; '==0.6.0' is
+#        the exact version string PyPI indexes for this release.
+
 fastapi==0.111.0
 uvicorn==0.29.0
 scapy==2.5.0
 httpx==0.27.0
 python-dotenv==1.0.1
-pyshark==0.6
+pyshark==0.6.0
