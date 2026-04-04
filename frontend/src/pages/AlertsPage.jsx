@@ -1,6 +1,6 @@
 import { useState, useEffect, useCallback } from 'react';
 import { alertsAPI } from '../services/api';
-import { getSocket, SOCKET_EVENTS } from '../services/socket';
+import { connectSocket, disconnectSocket, SOCKET_EVENTS } from '../services/socket';
 import SeverityBadge from '../components/ui/SeverityBadge';
 import styles from './AlertsPage.module.css';
 
@@ -15,12 +15,12 @@ function timeAgo(ts) {
 }
 
 export default function AlertsPage() {
-  const [alerts, setAlerts]     = useState([]);
-  const [loading, setLoading]   = useState(true);
-  const [error, setError]       = useState(null);
-  const [filter, setFilter]     = useState('all');
-  const [search, setSearch]     = useState('');
-  const [marking, setMarking]   = useState(null);
+  const [alerts, setAlerts]   = useState([]);
+  const [loading, setLoading] = useState(true);
+  const [error, setError]     = useState(null);
+  const [filter, setFilter]   = useState('all');
+  const [search, setSearch]   = useState('');
+  const [marking, setMarking] = useState(null);
 
   const load = useCallback(async () => {
     try {
@@ -36,20 +36,37 @@ export default function AlertsPage() {
 
   useEffect(() => { load(); }, [load]);
 
-  // Live: prepend new alerts via socket
+  // ── Real-time: connect socket + listen for new / resolved alerts
   useEffect(() => {
-    const socket = getSocket();
-    socket.on(SOCKET_EVENTS.NEW_ALERT, (alert) => {
+    const socket = connectSocket();
+
+    const onNewAlert = (alert) => {
       setAlerts(prev => [alert, ...prev].slice(0, 200));
-    });
-    return () => socket.off(SOCKET_EVENTS.NEW_ALERT);
+    };
+
+    const onAlertResolved = ({ id }) => {
+      setAlerts(prev =>
+        prev.map(a => (a._id === id || a.id === id) ? { ...a, read: true, status: 'read' } : a)
+      );
+    };
+
+    socket.on(SOCKET_EVENTS.NEW_ALERT,      onNewAlert);
+    socket.on(SOCKET_EVENTS.ALERT_RESOLVED, onAlertResolved);
+
+    return () => {
+      socket.off(SOCKET_EVENTS.NEW_ALERT,      onNewAlert);
+      socket.off(SOCKET_EVENTS.ALERT_RESOLVED, onAlertResolved);
+      disconnectSocket();
+    };
   }, []);
 
   const markRead = async (id) => {
     setMarking(id);
     try {
       await alertsAPI.markRead(id);
-      setAlerts(prev => prev.map(a => a._id === id || a.id === id ? { ...a, read: true, status: 'read' } : a));
+      setAlerts(prev => prev.map(a =>
+        a._id === id || a.id === id ? { ...a, read: true, status: 'read' } : a
+      ));
     } catch {}
     setMarking(null);
   };
@@ -64,7 +81,8 @@ export default function AlertsPage() {
   const filtered = alerts.filter(a => {
     const sev = a.severity?.toLowerCase() ?? '';
     const matchSev = filter === 'all' || sev === filter;
-    const matchSearch = !search ||
+    const matchSearch =
+      !search ||
       a.title?.toLowerCase().includes(search.toLowerCase()) ||
       a.message?.toLowerCase().includes(search.toLowerCase()) ||
       a.sourceIP?.includes(search);
@@ -154,7 +172,9 @@ export default function AlertsPage() {
                       {a.message && <span className={styles.alertMsg}>{a.message}</span>}
                     </td>
                     <td className={styles.mono}>{a.sourceIP ?? a.src_ip ?? '—'}</td>
-                    <td className={styles.mono}>{a.timestamp || a.createdAt ? timeAgo(a.timestamp ?? a.createdAt) : '—'}</td>
+                    <td className={styles.mono}>
+                      {a.timestamp || a.createdAt ? timeAgo(a.timestamp ?? a.createdAt) : '—'}
+                    </td>
                     <td>
                       <span className={isRead ? styles.statusRead : styles.statusUnread}>
                         {isRead ? 'read' : 'unread'}
