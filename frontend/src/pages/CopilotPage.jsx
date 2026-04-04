@@ -29,10 +29,16 @@ export default function CopilotPage() {
     bottomRef.current?.scrollIntoView({ behavior: 'smooth' });
   }, [messages, streamText]);
 
+  // FIX 1: shape must match backend validation:
+  //   { role: 'user' | 'model', text: string }
+  //   'assistant' role in UI state → 'model' for Gemini SDK
   const historyFor = (msgs) =>
     msgs
       .filter(m => m.role !== 'error')
-      .map(m => ({ role: m.role, parts: [{ text: m.content }] }));
+      .map(m => ({
+        role: m.role === 'assistant' ? 'model' : 'user',
+        text: m.content,
+      }));
 
   const send = async (text) => {
     const msg = text ?? input.trim();
@@ -51,10 +57,43 @@ export default function CopilotPage() {
       esRef.current = es;
       let buffer = '';
 
+      // FIX 2: backend sends type:'done' inside a standard 'message' event,
+      //         NOT as a named SSE event — handle done/error inside onmessage
       es.onmessage = (e) => {
         try {
           const d = JSON.parse(e.data);
-          buffer += d.text ?? d.content ?? d ?? '';
+
+          if (d.type === 'chunk') {
+            buffer += d.text ?? '';
+            setStreamText(buffer);
+            return;
+          }
+
+          if (d.type === 'done') {
+            es.close();
+            setMessages(prev => [...prev, { role: 'assistant', content: buffer, ts: Date.now() }]);
+            setStreamText('');
+            setStreaming(false);
+            setSending(false);
+            return;
+          }
+
+          if (d.type === 'error') {
+            es.close();
+            const errMsg = d.errorCode === 'GEMINI_KEY_MISSING'
+              ? 'AI service not configured. Please set GEMINI_API_KEY.'
+              : d.errorCode === 'GEMINI_RATE_LIMITED'
+              ? 'Rate limited — please wait a moment and try again.'
+              : 'AI service error. Please try again.';
+            setMessages(prev => [...prev, { role: 'error', content: errMsg, ts: Date.now() }]);
+            setStreamText('');
+            setStreaming(false);
+            setSending(false);
+            return;
+          }
+
+          // Unknown message type — treat as text chunk
+          buffer += d.text ?? d.content ?? '';
           setStreamText(buffer);
         } catch {
           buffer += e.data ?? '';
@@ -64,10 +103,11 @@ export default function CopilotPage() {
 
       es.onerror = async () => {
         es.close();
-        // Fallback to non-streaming
+        // Fallback to non-streaming if SSE connection fails entirely
         try {
           const res = await aiAPI.chat(msg, history);
-          const reply = res?.response ?? res?.text ?? res?.content ?? JSON.stringify(res);
+          // FIX 3: geminiChat unwraps to data object — answer is at res.answer
+          const reply = res?.answer ?? res?.response ?? res?.text ?? res?.content ?? JSON.stringify(res);
           setMessages(prev => [...prev, { role: 'assistant', content: reply, ts: Date.now() }]);
         } catch (err) {
           setMessages(prev => [...prev, { role: 'error', content: 'Error: ' + err.message, ts: Date.now() }]);
@@ -77,14 +117,6 @@ export default function CopilotPage() {
           setSending(false);
         }
       };
-
-      es.addEventListener('done', () => {
-        es.close();
-        setMessages(prev => [...prev, { role: 'assistant', content: buffer, ts: Date.now() }]);
-        setStreamText('');
-        setStreaming(false);
-        setSending(false);
-      });
     } catch (err) {
       setMessages(prev => [...prev, { role: 'error', content: 'Error: ' + err.message, ts: Date.now() }]);
       setStreamText('');
