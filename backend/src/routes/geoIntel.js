@@ -2,17 +2,15 @@
  * SENTINAL — Geo-IP Intelligence Routes
  * =======================================
  * GET /api/geo/heatmap    — country-level attack heatmap (aggregated from MongoDB)
- * GET /api/geo/ip/:ip     — lookup a specific IP's geo + abuse data
+ * GET /api/geo/ip/:ip     — lookup a specific IP's geo + abuse data (MongoDB-direct)
  * GET /api/geo/stats      — top attacking countries, ISPs, TOR/proxy stats
  */
 
-const express  = require('express');
-const axios    = require('axios');
-const router   = express.Router();
+const express     = require('express');
+const router      = express.Router();
 const AttackEvent = require('../models/AttackEvent');
-const logger   = require('../utils/logger');
+const logger      = require('../utils/logger');
 
-const DETECTION_URL = process.env.DETECTION_URL || 'http://localhost:8002';
 
 // ── GET /api/geo/heatmap ─────────────────────────────────────────────────────
 // Aggregates attack counts per country from MongoDB AttackEvents.
@@ -24,15 +22,15 @@ router.get('/heatmap', async (req, res) => {
       {
         $group: {
           _id: '$geoIntel.country_code',
-          country:   { $first: '$geoIntel.country' },
-          lat:       { $first: '$geoIntel.latitude' },
-          lng:       { $first: '$geoIntel.longitude' },
-          count:     { $sum: 1 },
-          critical:  { $sum: { $cond: [{ $eq: ['$severity', 'critical'] }, 1, 0] } },
-          high:      { $sum: { $cond: [{ $eq: ['$severity', 'high']     }, 1, 0] } },
-          tor_count: { $sum: { $cond: ['$geoIntel.is_tor',   1, 0] } },
+          country:     { $first: '$geoIntel.country' },
+          lat:         { $first: '$geoIntel.latitude' },
+          lng:         { $first: '$geoIntel.longitude' },
+          count:       { $sum: 1 },
+          critical:    { $sum: { $cond: [{ $eq: ['$severity', 'critical'] }, 1, 0] } },
+          high:        { $sum: { $cond: [{ $eq: ['$severity', 'high']     }, 1, 0] } },
+          tor_count:   { $sum: { $cond: ['$geoIntel.is_tor',   1, 0] } },
           proxy_count: { $sum: { $cond: ['$geoIntel.is_proxy', 1, 0] } },
-          avg_abuse: { $avg: '$geoIntel.abuse_confidence_score' },
+          avg_abuse:   { $avg: '$geoIntel.abuse_confidence_score' },
         }
       },
       { $sort: { count: -1 } },
@@ -63,20 +61,62 @@ router.get('/heatmap', async (req, res) => {
 
 
 // ── GET /api/geo/ip/:ip ───────────────────────────────────────────────────────
-// Proxies a single-IP lookup to the Detection Engine geo_intel module.
+// Looks up geo-intel for a single IP by querying the AttackEvent collection
+// directly in MongoDB. Returns the geoIntel subdocument from the most recent
+// event for that IP, or { data: null } if the IP has no stored geo data yet.
+//
+// This route is intentionally independent of the Detection Engine microservice
+// so it works correctly even when :8002 is unreachable (development / demo mode).
 router.get('/ip/:ip', async (req, res) => {
+  const { ip } = req.params;
+
+  if (!ip || typeof ip !== 'string' || ip.trim() === '') {
+    return res.status(400).json({ success: false, error: 'IP parameter is required' });
+  }
+
   try {
-    const { ip } = req.params;
-    // Forward to Detection Engine which has the cached geo_intel module
-    const response = await axios.get(
-      `${DETECTION_URL}/geo/heatmap`,
-      { timeout: 5000 }
-    );
-    // Find this specific IP in the cache snapshot
-    const heatmap = response.data.heatmap || [];
-    return res.json({ success: true, heatmap });
+    // Find the most recent AttackEvent for this IP that has geo data populated.
+    // We project only the geoIntel subdoc to keep the query lightweight.
+    const event = await AttackEvent
+      .findOne(
+        { ip: ip.trim(), 'geoIntel.country_code': { $exists: true, $ne: null } },
+        { geoIntel: 1, _id: 0 }
+      )
+      .sort({ createdAt: -1 })
+      .lean();
+
+    if (!event || !event.geoIntel) {
+      // IP exists in the system but has no geo enrichment yet — not an error.
+      logger.info(`[GEO] no geo data found for IP: ${ip}`);
+      return res.json({ success: true, data: null });
+    }
+
+    const g = event.geoIntel;
+
+    // Normalise to a flat shape that matches what SimulatePage consumes:
+    //   log.geoIntel.country, .tor_count, .proxy_count
+    const data = {
+      country:                g.country               || null,
+      country_code:           g.country_code          || null,
+      city:                   g.city                  || null,
+      latitude:               g.latitude              ?? null,
+      longitude:              g.longitude             ?? null,
+      isp:                    g.isp                   || null,
+      org:                    g.org                   || null,
+      is_tor:                 g.is_tor                ?? false,
+      is_proxy:               g.is_proxy              ?? false,
+      is_hosting:             g.is_hosting            ?? false,
+      abuse_confidence_score: g.abuse_confidence_score ?? 0,
+      // Alias counts used by SimulatePage log display
+      tor_count:   g.is_tor   ? 1 : 0,
+      proxy_count: g.is_proxy ? 1 : 0,
+    };
+
+    logger.info(`[GEO] ip lookup OK: ${ip} → ${data.country || 'unknown'}`);
+    return res.json({ success: true, data });
+
   } catch (err) {
-    logger.error(`[GEO] ip lookup error: ${err.message}`);
+    logger.error(`[GEO] ip lookup error for ${ip}: ${err.message}`);
     return res.status(500).json({ success: false, error: err.message });
   }
 });
@@ -98,11 +138,11 @@ router.get('/stats', async (req, res) => {
         {
           $group: {
             _id: null,
-            total:           { $sum: 1 },
-            tor_attacks:     { $sum: { $cond: ['$geoIntel.is_tor',     1, 0] } },
-            proxy_attacks:   { $sum: { $cond: ['$geoIntel.is_proxy',   1, 0] } },
-            hosting_attacks: { $sum: { $cond: ['$geoIntel.is_hosting', 1, 0] } },
-            high_abuse:      { $sum: { $cond: [{ $gte: ['$geoIntel.abuse_confidence_score', 50] }, 1, 0] } },
+            total:            { $sum: 1 },
+            tor_attacks:      { $sum: { $cond: ['$geoIntel.is_tor',     1, 0] } },
+            proxy_attacks:    { $sum: { $cond: ['$geoIntel.is_proxy',   1, 0] } },
+            hosting_attacks:  { $sum: { $cond: ['$geoIntel.is_hosting', 1, 0] } },
+            high_abuse:       { $sum: { $cond: [{ $gte: ['$geoIntel.abuse_confidence_score', 50] }, 1, 0] } },
             unique_countries: { $addToSet: '$geoIntel.country_code' },
           }
         },
