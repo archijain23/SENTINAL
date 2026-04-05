@@ -1,0 +1,41 @@
+{
+  "name": "sentinal-middleware",
+  "version": "1.0.0",
+  "description": "AI-powered Express.js middleware for rate limiting and request validation — extracted from the SENTINAL WAF project",
+  "main": "index.js",
+  "files": [
+    "index.js",
+    "src/",
+    "README.md"
+  ],
+  "keywords": [
+    "express",
+    "middleware",
+    "rate-limiter",
+    "validation",
+    "waf",
+    "security",
+    "sentinal"
+  ],
+  "author": "archijain23",
+  "license": "MIT",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/archijain23/SENTINAL.git",
+    "directory": "sentinal-middleware"
+  },
+  "homepage": "https://github.com/archijain23/SENTINAL/tree/main/sentinal-middleware#readme",
+  "bugs": {
+    "url": "https://github.com/archijain23/SENTINAL/issues"
+  },
+  "peerDependencies": {
+    "express": ">=4.0.0"
+  },
+  "dependencies": {
+    "express-rate-limit": "^7.0.0",
+    "joi": "^17.0.0"
+  },
+  "engines": {
+    "node": ">=18.0.0"
+  }
+}

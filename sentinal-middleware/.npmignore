@@ -1,0 +1,8 @@
+# Ignore everything not needed for the published package
+*.test.js
+*.spec.js
+__tests__/
+.github/
+.env*
+*.log
+node_modules/
