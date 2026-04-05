@@ -71,21 +71,6 @@ class SectionErrorBoundary extends Component {
   }
 }
 
-// ─── Skip link ────────────────────────────────────────────────────────────────
-function SkipLink() {
-  return (
-    <a
-      href="#main-content"
-      className="sr-only"
-      style={{ background: '#00F5FF', color: '#0B0F19' }}
-      onFocus={(e) => { e.currentTarget.style.position = 'fixed'; e.currentTarget.style.top = '1rem'; e.currentTarget.style.left = '1rem'; e.currentTarget.style.zIndex = '9999'; e.currentTarget.style.padding = '0.5rem 1rem'; e.currentTarget.style.borderRadius = '4px'; e.currentTarget.style.fontSize = '0.75rem'; }}
-      onBlur={(e) => { e.currentTarget.style.position = ''; }}
-    >
-      Skip to main content
-    </a>
-  );
-}
-
 // ─── Wrapped section helper ──────────────────────────────────────────────────
 function Section({ children, height }) {
   return (
@@ -245,7 +230,6 @@ function AIDetectionSection() {
 export default function App() {
   return (
     <>
-      <SkipLink />
       <Navbar />
       <main
         id="main-content"
