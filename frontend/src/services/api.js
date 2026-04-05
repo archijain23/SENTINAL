@@ -11,8 +11,12 @@ const http = axios.create({
 http.interceptors.response.use(
   (res) => res,
   (err) => {
-    const msg = err.response?.data?.message || err.message || 'Network error';
-    return Promise.reject(new Error(msg));
+    const msg  = err.response?.data?.message || err.message || 'Network error';
+    const code = err.response?.data?.code    || err.code    || null;
+    const error = new Error(msg);
+    error.code  = code;
+    error.status = err.response?.status || null;
+    return Promise.reject(error);
   }
 );
 
