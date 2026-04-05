@@ -55,13 +55,7 @@ export default function Navbar() {
         The sr-only class in globals.css hides it; on :focus-visible it
         becomes a small pill anchored to the top-left corner.
       */}
-      <a
-        href="#main-content"
-        className="skip-to-content"
-        tabIndex={0}
-      >
-        Skip to main content
-      </a>
+    
 
       <div className="section-container flex items-center justify-between">
 
