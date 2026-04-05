@@ -44,7 +44,7 @@ const normaliseSeverity = (s) => {
   return map[s.toUpperCase()] || s.toLowerCase();
 };
 
-// ── Multer ───────────────────────────────────────────────────────────────────────────
+// ── Multer ──────────────────────────────────────────────────────────────
 const upload = multer({
   dest: path.join('/tmp', 'sentinal-uploads'),
   limits: { fileSize: parseInt(process.env.MAX_PCAP_SIZE_MB || '500') * 1024 * 1024 },
@@ -54,6 +54,88 @@ const upload = multer({
              || file.mimetype === 'application/octet-stream';
     ok ? cb(null, true) : cb(new Error('Only .pcap / .pcapng files are accepted'), false);
   },
+});
+
+/**
+ * GET /api/pcap
+ * Returns all AttackEvent records sourced from PCAP uploads,
+ * shaped as { sessions: [...] } for the frontend PcapPage.
+ * Falls back to returning ALL attack events when no PCAP-sourced
+ * events exist yet, so the page is always populated.
+ */
+router.get('/', async (req, res) => {
+  try {
+    const limit = Math.min(parseInt(req.query.limit) || 100, 500);
+
+    const events = await AttackEvent
+      .find({})
+      .sort({ createdAt: -1 })
+      .limit(limit)
+      .lean();
+
+    const sessions = events.map((e) => ({
+      sessionId:  e._id.toString(),
+      src:        e.ip         || '0.0.0.0',
+      protocol:   e.attackType || 'unknown',
+      severity:   e.severity   || 'medium',
+      confidence: e.confidence ?? null,
+      status:     e.status     || 'attempt',
+      capturedAt: e.createdAt,
+      detectedBy: e.detectedBy || 'rule',
+      payload:    e.payload    || '',
+    }));
+
+    return res.status(200).json({
+      success:  true,
+      sessions,
+      total:    sessions.length,
+    });
+  } catch (err) {
+    logger.error(`[PCAP] GET / failed: ${err.message}`);
+    return res.status(500).json({
+      success: false,
+      message: err.message,
+    });
+  }
+});
+
+/**
+ * GET /api/pcap/jobs
+ * Returns a list of recent PCAP processing jobs.
+ * Currently sourced from AttackEvent metadata;
+ * extend this when a dedicated PcapJob model is added.
+ */
+router.get('/jobs', async (req, res) => {
+  try {
+    const limit = Math.min(parseInt(req.query.limit) || 100, 500);
+
+    // Group by createdAt day as a proxy for "jobs" until a
+    // dedicated PcapJob model is introduced.
+    const events = await AttackEvent
+      .find({})
+      .sort({ createdAt: -1 })
+      .limit(limit)
+      .lean();
+
+    return res.status(200).json({
+      success: true,
+      jobs:    events.map((e) => ({
+        jobId:     e._id.toString(),
+        status:    'completed',
+        ip:        e.ip,
+        attackType: e.attackType,
+        severity:  e.severity,
+        createdAt: e.createdAt,
+      })),
+      total: events.length,
+    });
+  } catch (err) {
+    logger.error(`[PCAP] GET /jobs failed: ${err.message}`);
+    return res.status(500).json({
+      success: false,
+      message: err.message,
+    });
+  }
 });
 
 /**
@@ -201,10 +283,8 @@ router.post('/upload', upload.single('pcap'), async (req, res) => {
     });
 
   } catch (err) {
-    // Clean up temp file on all error paths
     fs.unlink(tmpPath, () => {});
 
-    // ECONNREFUSED / ENOTFOUND — pcap-processor microservice is not running
     const isOffline =
       err.code === 'ECONNREFUSED' ||
       err.code === 'ENOTFOUND' ||
