@@ -229,10 +229,6 @@ input, button, textarea, select { font: inherit; color: inherit; }
 }
 
 /* ─── Section reveal ─────────────────────────────────────────────────────────── */
-/*
-  ALWAYS visible. Each section runs its own GSAP fromTo in useEffect.
-  No global hidden state — lazy-loaded components mount at unknown times.
-*/
 .section-reveal {
   opacity: 1;
   transform: none;
@@ -262,17 +258,46 @@ input, button, textarea, select { font: inherit; color: inherit; }
   border-radius: 3px;
 }
 
-/* ─── Skip link ──────────────────────────────────────────────────────────────── */
+/* ─── Skip-to-content link ───────────────────────────────────────────────────── */
+/*
+  Absolutely invisible until keyboard-focused.
+  Uses fixed positioning so it floats above the navbar without
+  ever pushing layout or flashing as visible text on mouse load.
+  The previous .sr-only pattern could flash on initial paint
+  because the element was in the document flow until JS applied
+  the class. This approach is position:fixed from the start.
+*/
+.skip-to-content {
+  position: fixed;
+  top: -100%;
+  left: 1rem;
+  z-index: 9999;
+  padding: 0.5rem 1rem;
+  background: var(--cyber-blue);
+  color: #0B0F19;
+  font-family: var(--font-mono);
+  font-size: 0.75rem;
+  font-weight: 700;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  border-radius: 0 0 4px 4px;
+  text-decoration: none;
+  transition: top 150ms ease;
+  white-space: nowrap;
+  pointer-events: none;
+}
+.skip-to-content:focus {
+  top: 0;
+  pointer-events: auto;
+  outline: 2px solid #0B0F19;
+  outline-offset: 2px;
+}
+
+/* ─── sr-only utility (kept for other uses) ──────────────────────────────────── */
 .sr-only {
   position: absolute; width: 1px; height: 1px; padding: 0;
   margin: -1px; overflow: hidden; clip: rect(0,0,0,0);
   white-space: nowrap; border-width: 0;
-}
-.sr-only.focus\:not-sr-only:focus,
-.sr-only:focus-within {
-  position: static; width: auto; height: auto;
-  padding: 0.5rem 1rem; margin: 0; overflow: visible;
-  clip: auto; white-space: normal;
 }
 
 /* ─── Pulse animation (SectionSkeleton + alert dot) ─────────────────────────── */

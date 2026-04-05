@@ -48,6 +48,21 @@ export default function Navbar() {
           : 'py-5 bg-transparent',
       ].join(' ')}
     >
+      {/*
+        Skip-to-content link — visually hidden at all times except when
+        focused via keyboard Tab. Uses fixed positioning so it never
+        pushes layout or flashes as visible text on mouse load.
+        The sr-only class in globals.css hides it; on :focus-visible it
+        becomes a small pill anchored to the top-left corner.
+      */}
+      <a
+        href="#main-content"
+        className="skip-to-content"
+        tabIndex={0}
+      >
+        Skip to main content
+      </a>
+
       <div className="section-container flex items-center justify-between">
 
         {/* Logo */}
@@ -87,7 +102,6 @@ export default function Navbar() {
             <span className="font-mono text-[10px] tracking-[0.15em] uppercase text-[#00FF88]">System Active</span>
           </div>
 
-          {/* ── LAUNCH DASHBOARD → /app/dashboard directly ── */}
           <Link
             to="/app/dashboard"
             className="hidden md:inline-flex items-center gap-2 font-mono text-xs tracking-[0.1em] uppercase px-4 py-2 rounded transition-all duration-200"
@@ -129,7 +143,6 @@ export default function Navbar() {
               {label}
             </a>
           ))}
-          {/* Mobile — Launch Dashboard → /app/dashboard directly */}
           <Link to="/app/dashboard" onClick={() => setIsOpen(false)}
             className="font-mono text-sm tracking-[0.1em] uppercase px-3 py-3 rounded mt-1 text-center transition-colors duration-200"
             style={{ background: 'rgba(0,245,255,0.08)', border: '1px solid rgba(0,245,255,0.2)', color: '#00F5FF' }}>
