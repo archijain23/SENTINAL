@@ -24,6 +24,7 @@ const CopilotPage     = lazy(() => import('./pages/CopilotPage'));
 const CorrelationPage = lazy(() => import('./pages/CorrelationPage'));
 const GeoPage         = lazy(() => import('./pages/GeoPage'));
 const ExplorePage     = lazy(() => import('./pages/ExplorePage'));
+const DocsPage        = lazy(() => import('./pages/DocsPage'));
 const NotFoundPage    = lazy(() => import('./pages/NotFoundPage'));
 
 function PageLoader() {
@@ -79,11 +80,12 @@ const router = createBrowserRouter([
       { path: 'services',         element: W(ServicesPage) },
       { path: 'audit',            element: W(AuditPage) },
       { path: 'settings',         element: W(SettingsPage) },
+      { path: 'docs',             element: W(DocsPage) },
     ],
   },
 
   // 404
-  { path: '*', element: W(NotFoundPage) },
+  { path: '*', element: <Suspense fallback={<PageLoader />}><NotFoundPage /></Suspense> },
 ]);
 
 export default router;
