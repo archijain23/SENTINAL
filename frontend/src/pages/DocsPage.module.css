@@ -1,0 +1,395 @@
+/* DocsPage.module.css — SENTINAL Docs */
+
+.root {
+  display: grid;
+  grid-template-columns: 240px 1fr;
+  min-height: 100vh;
+  background: #0B0F19;
+  color: #c9d1d9;
+  font-family: 'Inter', 'Segoe UI', system-ui, sans-serif;
+}
+
+/* ── Sidebar ────────────────────────────────────────────────── */
+.sidebar {
+  position: sticky;
+  top: 0;
+  height: 100vh;
+  overflow-y: auto;
+  background: #0d1117;
+  border-right: 1px solid rgba(0, 200, 255, 0.08);
+  padding: 0 0 32px 0;
+  scrollbar-width: thin;
+  scrollbar-color: rgba(0,200,255,0.15) transparent;
+}
+
+.sidebarLogo {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 20px 20px 16px;
+  font-size: 14px;
+  font-weight: 600;
+  color: #00c8ff;
+  border-bottom: 1px solid rgba(0,200,255,0.08);
+  margin-bottom: 8px;
+  letter-spacing: 0.02em;
+}
+
+.navItem {
+  display: block;
+  width: 100%;
+  text-align: left;
+  padding: 8px 20px;
+  font-size: 13px;
+  color: #8b949e;
+  background: none;
+  border: none;
+  cursor: pointer;
+  transition: color 0.15s, background 0.15s;
+  border-left: 2px solid transparent;
+  line-height: 1.4;
+}
+
+.navItem:hover {
+  color: #c9d1d9;
+  background: rgba(0,200,255,0.04);
+}
+
+.navActive {
+  color: #00c8ff;
+  background: rgba(0,200,255,0.06);
+  border-left-color: #00c8ff;
+}
+
+/* ── Main ───────────────────────────────────────────────────── */
+.main {
+  padding: 0 48px 80px;
+  max-width: 900px;
+  overflow-y: auto;
+}
+
+/* ── Hero ───────────────────────────────────────────────────── */
+.hero {
+  padding: 48px 0 40px;
+  border-bottom: 1px solid rgba(0,200,255,0.08);
+  margin-bottom: 8px;
+}
+
+.heroBadge {
+  display: inline-block;
+  font-size: 11px;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.1em;
+  color: #00c8ff;
+  background: rgba(0,200,255,0.1);
+  border: 1px solid rgba(0,200,255,0.2);
+  padding: 3px 10px;
+  border-radius: 4px;
+  margin-bottom: 16px;
+}
+
+.heroTitle {
+  font-size: 32px;
+  font-weight: 700;
+  color: #e6edf3;
+  margin-bottom: 12px;
+  line-height: 1.2;
+  letter-spacing: -0.02em;
+}
+
+.heroSub {
+  font-size: 15px;
+  color: #8b949e;
+  max-width: 620px;
+  line-height: 1.65;
+  margin-bottom: 28px;
+}
+
+.heroInstall {
+  max-width: 420px;
+}
+
+/* ── Sections ───────────────────────────────────────────────── */
+.section {
+  padding: 36px 0 24px;
+  border-bottom: 1px solid rgba(255,255,255,0.04);
+  scroll-margin-top: 24px;
+}
+
+.sectionTitle {
+  font-size: 20px;
+  font-weight: 600;
+  color: #e6edf3;
+  margin-bottom: 16px;
+  padding-bottom: 10px;
+  border-bottom: 1px solid rgba(0,200,255,0.1);
+}
+
+.h3 {
+  font-size: 15px;
+  font-weight: 600;
+  color: #c9d1d9;
+  margin: 24px 0 10px;
+}
+
+.lead {
+  font-size: 14px;
+  color: #8b949e;
+  line-height: 1.7;
+  margin-bottom: 20px;
+  max-width: 680px;
+}
+
+.list {
+  list-style: none;
+  padding: 0;
+  margin: 0 0 16px;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.list li {
+  font-size: 14px;
+  color: #8b949e;
+  padding-left: 16px;
+  position: relative;
+}
+
+.list li::before {
+  content: '—';
+  position: absolute;
+  left: 0;
+  color: rgba(0,200,255,0.4);
+}
+
+/* ── Code Block ─────────────────────────────────────────────── */
+.codeBlock {
+  background: #0d1117;
+  border: 1px solid rgba(255,255,255,0.07);
+  border-radius: 8px;
+  margin: 12px 0 20px;
+  overflow: hidden;
+  font-size: 13px;
+}
+
+.codeHeader {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  padding: 7px 14px;
+  background: rgba(255,255,255,0.03);
+  border-bottom: 1px solid rgba(255,255,255,0.05);
+}
+
+.codeLang {
+  font-size: 11px;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.08em;
+  color: #484f58;
+}
+
+.copyBtn {
+  font-size: 11px;
+  color: #484f58;
+  background: none;
+  border: 1px solid rgba(255,255,255,0.08);
+  border-radius: 4px;
+  padding: 2px 10px;
+  cursor: pointer;
+  transition: color 0.15s, border-color 0.15s;
+}
+
+.copyBtn:hover {
+  color: #00c8ff;
+  border-color: rgba(0,200,255,0.3);
+}
+
+.codeBlock pre {
+  margin: 0;
+  padding: 16px 18px;
+  overflow-x: auto;
+  line-height: 1.6;
+  scrollbar-width: thin;
+}
+
+.codeBlock code {
+  color: #c9d1d9;
+  font-family: 'JetBrains Mono', 'Fira Code', 'Cascadia Code', monospace;
+  font-size: 13px;
+}
+
+/* ── Endpoint ───────────────────────────────────────────────── */
+.endpoint {
+  border: 1px solid rgba(255,255,255,0.07);
+  border-radius: 8px;
+  margin-bottom: 12px;
+  overflow: hidden;
+  background: #0d1117;
+}
+
+.endpointHeader {
+  display: flex;
+  align-items: center;
+  gap: 14px;
+  width: 100%;
+  padding: 13px 18px;
+  background: none;
+  border: none;
+  cursor: pointer;
+  text-align: left;
+  transition: background 0.15s;
+}
+
+.endpointHeader:hover {
+  background: rgba(255,255,255,0.02);
+}
+
+.endpointMeta {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  flex-shrink: 0;
+}
+
+.endpointPath {
+  font-family: 'JetBrains Mono', monospace;
+  font-size: 13px;
+  color: #c9d1d9;
+  font-weight: 500;
+}
+
+.endpointDesc {
+  font-size: 13px;
+  color: #6e7681;
+  flex: 1;
+}
+
+.endpointChevron {
+  font-size: 10px;
+  color: #484f58;
+  margin-left: auto;
+  flex-shrink: 0;
+}
+
+.endpointBody {
+  padding: 16px 18px 18px;
+  border-top: 1px solid rgba(255,255,255,0.05);
+}
+
+.endpointBody h4 {
+  font-size: 12px;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.08em;
+  color: #484f58;
+  margin: 16px 0 8px;
+}
+
+/* ── Badges ─────────────────────────────────────────────────── */
+.badge {
+  font-size: 10px;
+  font-weight: 700;
+  padding: 2px 8px;
+  border-radius: 4px;
+  font-family: 'JetBrains Mono', monospace;
+  letter-spacing: 0.04em;
+  flex-shrink: 0;
+}
+
+.badgeGet    { background: rgba(56,189,127,0.15);  color: #38bd7f; border: 1px solid rgba(56,189,127,0.25); }
+.badgePost   { background: rgba(0,200,255,0.12);   color: #00c8ff; border: 1px solid rgba(0,200,255,0.2); }
+.badgeDel    { background: rgba(255,77,77,0.12);   color: #ff4d4d; border: 1px solid rgba(255,77,77,0.2); }
+.badgePatch  { background: rgba(255,183,0,0.12);   color: #ffb700; border: 1px solid rgba(255,183,0,0.2); }
+.badgePut    { background: rgba(147,92,255,0.12);  color: #935cff; border: 1px solid rgba(147,92,255,0.2); }
+
+/* ── Tables ─────────────────────────────────────────────────── */
+.paramTable {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 13px;
+  margin: 10px 0 20px;
+  background: #0d1117;
+  border: 1px solid rgba(255,255,255,0.07);
+  border-radius: 8px;
+  overflow: hidden;
+}
+
+.paramTable th {
+  padding: 9px 14px;
+  text-align: left;
+  font-size: 11px;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.07em;
+  color: #484f58;
+  background: rgba(255,255,255,0.03);
+  border-bottom: 1px solid rgba(255,255,255,0.06);
+}
+
+.paramTable td {
+  padding: 9px 14px;
+  color: #8b949e;
+  border-bottom: 1px solid rgba(255,255,255,0.04);
+  vertical-align: top;
+}
+
+.paramTable tr:last-child td { border-bottom: none; }
+
+.paramTable td code {
+  font-family: 'JetBrains Mono', monospace;
+  font-size: 12px;
+  color: #c9d1d9;
+  background: rgba(255,255,255,0.05);
+  padding: 1px 5px;
+  border-radius: 3px;
+}
+
+.typeTag {
+  font-family: 'JetBrains Mono', monospace;
+  font-size: 11px;
+  color: #935cff;
+  background: rgba(147,92,255,0.1);
+  padding: 1px 6px;
+  border-radius: 3px;
+}
+
+.dirTag {
+  font-family: 'JetBrains Mono', monospace;
+  font-size: 11px;
+  color: #38bd7f;
+  background: rgba(56,189,127,0.1);
+  padding: 1px 6px;
+  border-radius: 3px;
+}
+
+.req {
+  font-size: 11px;
+  color: #ff4d4d;
+  background: rgba(255,77,77,0.1);
+  padding: 1px 6px;
+  border-radius: 3px;
+}
+
+.opt {
+  font-size: 11px;
+  color: #484f58;
+  background: rgba(255,255,255,0.05);
+  padding: 1px 6px;
+  border-radius: 3px;
+}
+
+/* ── Responsive ─────────────────────────────────────────────── */
+@media (max-width: 768px) {
+  .root { grid-template-columns: 1fr; }
+  .sidebar {
+    position: relative;
+    height: auto;
+    border-right: none;
+    border-bottom: 1px solid rgba(0,200,255,0.08);
+  }
+  .main { padding: 0 20px 60px; }
+  .heroTitle { font-size: 24px; }
+}
